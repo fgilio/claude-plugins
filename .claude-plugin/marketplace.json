@@ -1,0 +1,25 @@
+{
+  "name": "fgilio",
+  "description": "Franco Gilio's Claude Code plugins.",
+  "owner": {
+    "name": "Franco Gilio"
+  },
+  "plugins": [
+    {
+      "name": "coding",
+      "source": {
+        "source": "github",
+        "repo": "fgilio/coding-skill"
+      },
+      "description": "Franco's code style preferences: expressive naming, fluent interfaces, early returns, Laravel-style comments, Stripe-style docs."
+    },
+    {
+      "name": "skill-design-philosophy",
+      "source": {
+        "source": "github",
+        "repo": "fgilio/skill-design-philosophy-skill"
+      },
+      "description": "Design philosophy for creating outstanding Claude Code skills. Use when creating a new skill, improving an existing skill, or designing script interfaces."
+    }
+  ]
+}
