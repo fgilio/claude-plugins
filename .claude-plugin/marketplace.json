@@ -20,6 +20,14 @@
         "repo": "fgilio/skill-design-philosophy-skill"
       },
       "description": "Design philosophy for creating outstanding Claude Code skills. Use when creating a new skill, improving an existing skill, or designing script interfaces."
+    },
+    {
+      "name": "polish",
+      "source": {
+        "source": "github",
+        "repo": "fgilio/polish-skill"
+      },
+      "description": "Polish a codebase by reviewing it for simplifications, unifications, and reduced cognitive load. Convenes Otwell, DHH, Wathan, and Porzio as parallel reviewers. Report-only by default; --interactive confirms and implements."
     }
   ]
 }
