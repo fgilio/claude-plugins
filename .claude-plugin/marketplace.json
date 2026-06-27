@@ -28,6 +28,14 @@
         "repo": "fgilio/polish-skill"
       },
       "description": "Polish a codebase by reviewing it for simplifications, unifications, and reduced cognitive load. Convenes Otwell, DHH, Wathan, and Porzio as parallel reviewers. Report-only by default; --interactive confirms and implements."
+    },
+    {
+      "name": "fgilio-review",
+      "source": {
+        "source": "github",
+        "repo": "fgilio/fgilio-review-skill"
+      },
+      "description": "Audit code through Franco's coding standards and polish simplification panel in one pass. Modes: report (default), address, comment (inline PR comments)."
     }
   ]
 }
