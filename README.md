@@ -17,6 +17,13 @@ Add it once and install any of the plugins below.
   Laravel-style comments, Stripe-style docs.
 - **skill-design-philosophy** ([fgilio/skill-design-philosophy-skill](https://github.com/fgilio/skill-design-philosophy-skill)):
   design philosophy for creating outstanding Claude Code skills.
+- **polish** ([fgilio/polish-skill](https://github.com/fgilio/polish-skill)):
+  simplification review. Convenes Otwell, DHH, and Wathan as parallel
+  reviewers, plus Porzio when frontend files are in scope. Report-only by
+  default; `--interactive` confirms and implements.
+- **fgilio-review** ([fgilio/fgilio-review-skill](https://github.com/fgilio/fgilio-review-skill)):
+  audits a scope through the `coding` and `polish` skills in one pass.
+  Modes: report (default), address, comment (inline PR comments).
 
 ## Updates
 
