@@ -19,7 +19,7 @@
         "source": "github",
         "repo": "fgilio/skill-design-philosophy-skill"
       },
-      "description": "Design philosophy for creating outstanding Claude Code skills. Use when creating a new skill, improving an existing skill, or designing script interfaces."
+      "description": "Design philosophy for creating outstanding Claude Code skills."
     },
     {
       "name": "polish",
