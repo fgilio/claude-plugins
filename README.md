@@ -11,7 +11,7 @@ Franco Gilio's plugin marketplace for [Claude Code](https://code.claude.com). Ad
 
 ## Plugins
 
-- **coding** ([fgilio/coding-skill](https://github.com/fgilio/coding-skill)): code style preferences for writing, reviewing, and documenting code.
+- **coding** ([fgilio/coding-skill](https://github.com/fgilio/coding-skill)): Franco's code style preferences.
 - **skill-design-philosophy** ([fgilio/skill-design-philosophy-skill](https://github.com/fgilio/skill-design-philosophy-skill)): design philosophy for creating outstanding Claude Code skills.
 - **polish** ([fgilio/polish-skill](https://github.com/fgilio/polish-skill)): reviews a scope in search of simplifications, unifications, and reductions in cognitive load.
 - **fgilio-review** ([fgilio/fgilio-review-skill](https://github.com/fgilio/fgilio-review-skill)): audits a scope through the `coding` and `polish` skills merged into one prioritized list.
