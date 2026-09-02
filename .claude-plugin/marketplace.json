@@ -36,6 +36,14 @@
         "repo": "fgilio/fgilio-review-skill"
       },
       "description": "Audit code through Franco's two review lenses (the coding and polish skills) merged into one prioritized list."
+    },
+    {
+      "name": "fgilio-audit",
+      "source": {
+        "source": "github",
+        "repo": "fgilio/fgilio-audit-skill"
+      },
+      "description": "Audit-only search for materially useful simplifications in a diff, branch, project, or multi-repo feature. Based on Aaron Francis's \"Audit your codebase\" prompt."
     }
   ]
 }
