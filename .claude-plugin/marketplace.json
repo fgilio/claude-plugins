@@ -44,6 +44,14 @@
         "repo": "fgilio/fgilio-audit-skill"
       },
       "description": "Audit-only search for materially useful simplifications in a diff, branch, project, or multi-repo feature. Based on Aaron Francis's \"Audit your codebase\" prompt."
+    },
+    {
+      "name": "tool-lines",
+      "source": {
+        "source": "github",
+        "repo": "fgilio/tool-lines-mod"
+      },
+      "description": "Draws each tool call as one compact line; click a line to see its full input and result in a side pane. Fork of Tickloop/claude-mods tool-lines."
     }
   ]
 }
