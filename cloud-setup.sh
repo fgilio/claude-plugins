@@ -31,7 +31,7 @@ run_step() {
   fi
 }
 
-# shellcheck disable=SC2329 # run_step calls it through "$@"
+# shellcheck disable=SC2317,SC2329 # run_step calls it through "$@"
 write_codex_config() {
   mkdir -p "$(dirname "$CODEX_CONFIG")"
   cat >"$CODEX_CONFIG" <<'EOF'
