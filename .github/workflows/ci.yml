@@ -1,5 +1,5 @@
-# Standard CI for a skill or marketplace repo (Markdown, YAML, and JSON; no
-# build).
+# Standard CI for a skill or marketplace repo (Markdown, YAML, JSON, and shell
+# scripts). No build.
 #
 # Gate jobs feed a single `ci-success` aggregate. Make `ci-success` the required
 # status check in branch protection, so adding or renaming a gate never touches

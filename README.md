@@ -28,7 +28,7 @@ claude plugin marketplace add fgilio/claude-plugins || true
 bash ~/.claude/plugins/marketplaces/fgilio/cloud-setup.sh
 ```
 
-[cloud-setup.sh](cloud-setup.sh) installs `coding`, `polish`, `fgilio-review`, and `codex-partner`, the official Codex plugin, and the Codex CLI, then writes a Codex config when the environment has none. Every step is best effort, so a failed install never blocks the session, and the last line counts the failures.
+[cloud-setup.sh](cloud-setup.sh) installs `coding`, `polish`, `fgilio-review`, `codex-partner`, the official Codex plugin, and the Codex CLI, then writes a Codex config when the environment has none. Every step is best effort, so a failed install never blocks the session, and the last line counts the failures.
 
 Claude Code caches the environment for about seven days and reruns the setup script only when its text changes. To pick up a change to `cloud-setup.sh` sooner, change the setup script, for example by bumping a `# rev` comment.
 
