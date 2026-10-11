@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Sets up a Claude Code cloud session: Franco's plugins, the official Codex
-# plugin, the Codex CLI, and a default Codex config. A cloud environment's
-# setup script runs it, see README.md#cloud-sessions.
+# Sets up a Claude Code cloud session: Franco's plugins, the Codex CLI, and a
+# default Codex config. A cloud environment's setup script runs it, see
+# README.md#cloud-sessions.
 
 set -uo pipefail
 
@@ -46,8 +46,6 @@ codex_install=$!
 for plugin in "${FGILIO_PLUGINS[@]}"; do
   run_step "$plugin@fgilio" claude plugin install "$plugin@fgilio"
 done
-
-run_step "codex@openai-codex" claude plugin install codex --marketplace openai/codex-plugin-cc
 
 if [[ -f "$CODEX_CONFIG" ]]; then
   printf 'skip  Codex config (%s exists)\n' "$CODEX_CONFIG"
