@@ -40,7 +40,7 @@ model_reasoning_effort = "xhigh"
 EOF
 }
 
-run_step "Codex CLI" npm install --global @openai/codex &
+run_step "Codex CLI" npm install --global --no-audit --no-fund @openai/codex &
 codex_install=$!
 
 # Plugin installs write the same settings file, so they run one at a time.
