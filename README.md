@@ -19,6 +19,19 @@ Franco Gilio's plugin marketplace for [Claude Code](https://code.claude.com). Ad
 - **tool-lines** ([fgilio/tool-lines-mod](https://github.com/fgilio/tool-lines-mod)): draws each tool call as one compact line; click a line to see its full input and result in a side pane. Fork of the `tool-lines` mod in [Tickloop/claude-mods](https://github.com/Tickloop/claude-mods).
 - **codex-partner** ([fgilio/codex-partner-skill](https://github.com/fgilio/codex-partner-skill)): talk with OpenAI Codex from Claude Code, as a one-shot second opinion or a named partner that remembers the conversation. Works in local and cloud sessions.
 
+## Cloud sessions
+
+[Cloud sessions](https://code.claude.com/docs/en/claude-code-on-the-web) don't install plugins from settings, so the cloud environment's setup script installs them. Paste these two lines into the environment's **Setup script**:
+
+```bash
+claude plugin marketplace add fgilio/claude-plugins || true
+bash ~/.claude/plugins/marketplaces/fgilio/cloud-setup.sh
+```
+
+[cloud-setup.sh](cloud-setup.sh) installs `coding`, `polish`, `fgilio-review`, and `codex-partner`, the official Codex plugin, and the Codex CLI, then writes a Codex config when the environment has none. Every step is best effort, so a failed install never blocks the session, and the last line counts the failures.
+
+Claude Code caches the environment for about seven days and reruns the setup script only when its text changes. To pick up a change to `cloud-setup.sh` sooner, change the setup script, for example by bumping a `# rev` comment.
+
 ## Updates
 
 Plugins track the latest commit of their source repositories. Claude Code checks for updates on startup. Run `/plugin update <name>` to update manually, or enable auto-update for this marketplace in the `/plugin` menu.
