@@ -28,9 +28,16 @@ claude plugin marketplace add fgilio/claude-plugins || true
 bash ~/.claude/plugins/marketplaces/fgilio/cloud-setup.sh
 ```
 
-[cloud-setup.sh](cloud-setup.sh) installs `coding`, `polish`, `fgilio-review`, `codex-partner`, and the Codex CLI, then writes a Codex config when the environment has none. Every step is best effort, so a failed install never blocks the session, and the last line counts the failures.
+[cloud-setup.sh](cloud-setup.sh) installs `coding`, `polish`, `fgilio-review`, `codex-partner`, the Codex CLI and the Cloudflare CLI (`cf`). It writes a Codex config and a user `CLAUDE.md` when the environment has none, and sets `NODE_USE_ENV_PROXY=1`, because Node's `fetch` skips the agent proxy and its network secrets otherwise. Every step is best effort, so a failed install never blocks the session, and the last line counts the failures.
 
 Claude Code caches the environment for about seven days and reruns the setup script only when its text changes. To pick up a change to `cloud-setup.sh` sooner, change the setup script, for example by bumping a `# rev` comment.
+
+### Cloudflare
+
+To give an environment read-only access to every Cloudflare account and zone, create a user API token from the **Read all resources** template, then add it to the environment:
+
+- **Pro or Max**: add a network secret for `api.cloudflare.com` that holds the token, and set the environment variable `CLOUDFLARE_API_TOKEN=network-secret`. The agent proxy replaces the placeholder `Authorization` header with the secret, so curl, Bun and `cf` work unchanged and the key never enters the VM.
+- **Team or Enterprise**: these plans have no network secrets, so set `CLOUDFLARE_API_TOKEN` to the token itself, and only on a personal environment, because everyone who uses an environment can read its variables.
 
 ## Updates
 
