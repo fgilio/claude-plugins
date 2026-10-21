@@ -60,6 +60,14 @@
         "repo": "fgilio/codex-partner-skill"
       },
       "description": "Talk with OpenAI Codex from Claude Code, as a one-shot second opinion, a code review, or a named partner that remembers the conversation. Works in local and cloud sessions."
+    },
+    {
+      "name": "ship-it",
+      "source": {
+        "source": "github",
+        "repo": "fgilio/ship-it-skill"
+      },
+      "description": "Ship a change: granular commits, push, GitHub Actions watched until green, the PR, and the follow-up on its review threads (address, reply, resolve)."
     }
   ]
 }
