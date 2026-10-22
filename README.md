@@ -38,10 +38,7 @@ Claude Code caches the environment for about seven days and reruns the setup scr
 
 ### Cloudflare
 
-To give an environment read-only access to every Cloudflare account and zone, create a user API token from the **Read all resources** template, then add it to the environment:
-
-- **Pro or Max**: add a network secret for `api.cloudflare.com` that holds the token, and set the environment variable `CLOUDFLARE_API_TOKEN=network-secret`. The agent proxy replaces the placeholder `Authorization` header with the secret, so curl, Bun and `cf` work unchanged and the key never enters the VM.
-- **Team or Enterprise**: these plans have no network secrets, so set `CLOUDFLARE_API_TOKEN` to the token itself, and only on a personal environment, because everyone who uses an environment can read its variables.
+To give an environment read-only access to every Cloudflare account and zone, create a user API token from the **Read all resources** template. Add a network secret for `api.cloudflare.com` that holds the token, and set the environment variable `CLOUDFLARE_API_TOKEN=network-secret`. The agent proxy replaces the placeholder `Authorization` header with the secret, so curl, Bun and `cf` work unchanged and the key never enters the VM.
 
 ## Updates
 
