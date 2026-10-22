@@ -5,7 +5,7 @@
 
 set -uo pipefail
 
-readonly FGILIO_PLUGINS=(coding polish fgilio-review codex-partner)
+readonly FGILIO_PLUGINS=(coding polish fgilio-review codex-partner ship-it)
 readonly CODEX_CONFIG="$HOME/.codex/config.toml"
 readonly USER_SETTINGS="$HOME/.claude/settings.json"
 readonly USER_INSTRUCTIONS="$HOME/.claude/CLAUDE.md"

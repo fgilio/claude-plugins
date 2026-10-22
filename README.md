@@ -22,16 +22,19 @@ Franco Gilio's plugin marketplace for [Claude Code](https://code.claude.com). Ad
 
 ## Cloud sessions
 
-[Cloud sessions](https://code.claude.com/docs/en/claude-code-on-the-web) don't install plugins from settings, so the cloud environment's setup script installs them. Paste these two lines into the environment's **Setup script**:
+[Cloud sessions](https://code.claude.com/docs/en/claude-code-on-the-web) don't install plugins from settings, so the cloud environment's setup script installs them. Paste these lines into the environment's **Setup script**:
 
 ```bash
 claude plugin marketplace add fgilio/claude-plugins || true
 bash ~/.claude/plugins/marketplaces/fgilio/cloud-setup.sh
+# Each session gets the latest plugins instead of the copy cached when the environment was built.
+s=~/.claude/settings.json
+jq '.extraKnownMarketplaces.fgilio.autoUpdate = true' "$s" > "$s.tmp" && mv "$s.tmp" "$s"
 ```
 
-[cloud-setup.sh](cloud-setup.sh) installs `coding`, `polish`, `fgilio-review`, `codex-partner`, the Codex CLI and the Cloudflare CLI (`cf`). It writes a Codex config and a user `CLAUDE.md` when the environment has none, and sets `NODE_USE_ENV_PROXY=1`, because Node's `fetch` skips the agent proxy and its network secrets otherwise. Every step is best effort, so a failed install never blocks the session, and the last line counts the failures.
+[cloud-setup.sh](cloud-setup.sh) installs `coding`, `polish`, `fgilio-review`, `codex-partner`, `ship-it`, the Codex CLI and the Cloudflare CLI (`cf`). It writes a Codex config and a user `CLAUDE.md` when the environment has none, and sets `NODE_USE_ENV_PROXY=1`, because Node's `fetch` skips the agent proxy and its network secrets otherwise. Every step is best effort, so a failed install never blocks the session, and the last line counts the failures.
 
-Claude Code caches the environment for about seven days and reruns the setup script only when its text changes. To pick up a change to `cloud-setup.sh` sooner, change the setup script, for example by bumping a `# rev` comment.
+Claude Code caches the environment for about seven days and reruns the setup script only when its text changes. Auto-update brings each plugin's latest version to every session, but a change to `cloud-setup.sh` itself (a plugin or a CLI it adds) waits for the next rebuild. To pick it up sooner, change the setup script, for example by bumping a `# rev` comment.
 
 ### Cloudflare
 
