@@ -67,7 +67,7 @@
         "source": "github",
         "repo": "fgilio/ship-it-skill"
       },
-      "description": "Ship a change: granular commits, push, GitHub Actions watched until green, the PR, and the follow-up on its review threads (address, reply, resolve)."
+      "description": "Ship a change: focused commits, push, CI watched until green, the PR with proof and a reading guide, review rounds with a decision on every finding, and, on request, merge, deploy and a check of production."
     }
   ]
 }
