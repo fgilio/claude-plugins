@@ -9,6 +9,7 @@ import {
   driftReport,
   isProfile,
   main,
+  shellQuote,
   syncStatus,
   syncWithFleet,
 } from "./fleet-sync";
@@ -104,6 +105,18 @@ describe("syncStatus", () => {
   });
 });
 
+describe("shellQuote", () => {
+  test.each<[string, string]>([
+    ["../acme-books", "../acme-books"],
+    ["scripts/fleet-sync.ts", "scripts/fleet-sync.ts"],
+    ["my repo", "'my repo'"],
+    ["it's", "'it'\\''s'"],
+    ["", "''"],
+  ])("%p becomes %p", (value, quoted) => {
+    expect(shellQuote(value)).toBe(quoted);
+  });
+});
+
 describe("driftReport", () => {
   test("names each file that differs and the command that fixes it", () => {
     const report = driftReport(
@@ -131,6 +144,23 @@ describe("driftReport", () => {
     expect(report[0]).toEndWith("fleet-sync.ts ../acme-books --profile code");
     expect(report[1]).toStartWith(
       ".github/dependabot.yml does not exist. Its canonical copy is fleet/shared/.github/dependabot.yml. Run: bun ",
+    );
+  });
+
+  test("quotes a target directory with a space, and leaves a plain one", () => {
+    const drifted = [
+      {
+        target: "lefthook.yml",
+        source: "code/lefthook.yml",
+        status: "drifted" as const,
+      },
+    ];
+
+    expect(driftReport(drifted, "../my repo", "code")[0]).toEndWith(
+      " '../my repo' --profile code",
+    );
+    expect(driftReport(drifted, "../acme-books", "code")[0]).toEndWith(
+      " ../acme-books --profile code",
     );
   });
 

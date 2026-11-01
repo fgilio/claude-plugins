@@ -66,13 +66,23 @@ export function syncStatus(
   return Buffer.from(canonical).equals(current) ? "same" : "drifted";
 }
 
+/**
+ * Quotes a value for a POSIX shell when it holds anything beyond letters,
+ * digits and _./-, so a printed command can be pasted as is.
+ */
+export function shellQuote(value: string): string {
+  return /^[A-Za-z0-9_./-]+$/.test(value)
+    ? value
+    : `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 function syncCommand(targetDir: string, profile: Profile): string {
   const script = relative(
     process.cwd(),
     join(import.meta.dir, "fleet-sync.ts"),
   );
 
-  return `bun ${script} ${targetDir} --profile ${profile}`;
+  return `bun ${shellQuote(script)} ${shellQuote(targetDir)} --profile ${profile}`;
 }
 
 /**
