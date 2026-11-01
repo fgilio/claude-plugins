@@ -183,7 +183,7 @@ With `shell: true`, ShellCheck runs on every tracked `*.sh` file.
 - runs `oxfmt` on JSON, JSONC, Markdown and YAML, and adds the fixes to the commit.
 - runs markdownlint on Markdown, after oxfmt has formatted it.
 
-The hook runs the tools from `node_modules`, at the versions `bun.lock` pins. Without `bun install`, it fails instead of fetching a release.
+The hook starts each tool with `bun run`, from `node_modules` at the versions `bun.lock` pins, so a machine with Bun and no Node can commit. Without `bun install`, it fails instead of fetching a release.
 
 A lint error the fixer cannot fix stops the commit. Type checks and tests run in CI only, so a commit stays fast. Never bypass the hook with `--no-verify`.
 
