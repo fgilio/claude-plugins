@@ -1,0 +1,220 @@
+# The gates every fleet repository runs. A repository calls this workflow
+# from its own ci.yml, pinned by commit SHA, and keeps a `ci-success` job
+# over it as the one required status check. See fleet/README.md.
+#
+# No job writes to the repository, so every checkout drops the token
+# (persist-credentials: false) before any dependency code runs.
+
+name: Fleet CI
+
+on:
+  workflow_call:
+    inputs:
+      profile:
+        description: "code (TypeScript: lint, type check, tests) or prose (Markdown and JSON only)"
+        type: string
+        required: true
+      shell:
+        description: Run ShellCheck on every tracked *.sh file.
+        type: boolean
+        default: false
+      plugin:
+        description: Validate the Claude Code plugin or marketplace and every JSON file.
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    # Explicit bash adds pipefail, so a failing command on the left of a
+    # pipe fails the step.
+    shell: bash
+
+env:
+  # Tools fetched as release files and checked against a SHA-256. Dependabot
+  # cannot see these pins, so bump them by hand to a release at least 14
+  # days old.
+  CLAUDE_CODE_VERSION: 2.1.302
+  CLAUDE_CODE_SHA256: 3bc5817207175089cbe0a02a989bdf35b228497f8f76d3c3ba13d568dc8f25e2
+  ACTIONLINT_VERSION: 1.7.12
+  ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+  ZIZMOR_VERSION: 1.31.1
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      # A misspelled profile would skip the code gates without a failure.
+      - name: The profile input is code or prose
+        env:
+          PROFILE: ${{ inputs.profile }}
+        run: |
+          if [[ "$PROFILE" != code && "$PROFILE" != prose ]]; then
+            echo "::error::The profile input is \"$PROFILE\". Set it to code or prose in the caller's ci.yml."
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - run: bun run fmt:check
+
+  lint:
+    if: ${{ inputs.profile == 'code' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+
+  typecheck:
+    if: ${{ inputs.profile == 'code' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+
+  test:
+    if: ${{ inputs.profile == 'code' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - run: bun test
+
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - run: bun run lint:md
+      # The hub's scripts at the commit the caller pinned. git skips the
+      # nested checkout, so its files never count as the caller's.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .fleet
+          persist-credentials: false
+      - name: The prose follows the house rules
+        run: bun .fleet/scripts/check-prose.ts
+
+  plugin:
+    if: ${{ inputs.plugin }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .fleet
+          persist-credentials: false
+      - name: Every JSON and JSONC file parses
+        run: bun .fleet/scripts/validate-json.ts
+      # The native binary from the npm registry, without the wrapper
+      # package's install script.
+      - name: Install Claude Code ${{ env.CLAUDE_CODE_VERSION }}
+        run: |
+          archive="claude-code-linux-x64-${CLAUDE_CODE_VERSION}.tgz"
+          curl --fail --silent --show-error --location --output "$RUNNER_TEMP/$archive" \
+            "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64/-/$archive"
+          echo "$CLAUDE_CODE_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" --strip-components=1 package/claude
+      - name: claude plugin validate
+        env:
+          DISABLE_TELEMETRY: "1"
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+        run: '"$RUNNER_TEMP/claude" plugin validate .'
+      # claude plugin validate skips a skill whose frontmatter does not
+      # parse, and accepts a name that differs from its directory.
+      - name: Skills, hooks and relative links
+        run: bun .fleet/scripts/validate-plugin.ts
+
+  actions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install actionlint ${{ env.ACTIONLINT_VERSION }}
+        run: |
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl --fail --silent --show-error --location --output "$RUNNER_TEMP/$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/$archive"
+          echo "$ACTIONLINT_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint
+      - name: actionlint
+        run: '"$RUNNER_TEMP/actionlint" -color'
+      - name: zizmor
+        uses: zizmorcore/zizmor-action@85b2b9fb8e3325e7a23d7d0a9d7ba5ae0f999e3e # v0.7.1
+        with:
+          version: ${{ env.ZIZMOR_VERSION }}
+          persona: regular
+          advanced-security: false
+          annotations: true
+
+  shell:
+    if: ${{ inputs.shell }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Every tracked shell script passes ShellCheck
+        run: git ls-files -z '*.sh' | xargs -0 --no-run-if-empty shellcheck

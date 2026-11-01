@@ -1,0 +1,6 @@
+paths:
+  .github/workflows/fleet-ci.yml:
+    ignore:
+      # The job context gained workflow_repository and workflow_sha (the
+      # called workflow's own repository and commit) after actionlint 1.7.12.
+      - 'property "workflow_(repository|sha)" is not defined'
