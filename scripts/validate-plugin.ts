@@ -13,10 +13,19 @@ import { existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 import { filesGitWouldCommit } from "./git-files";
+import { lineAt, maskSkippedSource } from "./markdown-source";
 
 export interface PluginProblem {
   path: string;
+  /** The line the problem sits on, when it has one. */
+  line?: number;
   message: string;
+}
+
+export interface LinkTarget {
+  target: string;
+  /** Undefined when the destination is written differently in the source. */
+  line: number | undefined;
 }
 
 const BOOLEAN_KEYS = ["user-invocable", "disable-model-invocation"];
@@ -35,9 +44,10 @@ function isStringArray(value: unknown): value is string[] {
 
 /**
  * Collects link and image destinations as a Markdown parser reads them, so
- * code blocks, code spans and unused definitions never count.
+ * code blocks, code spans and unused definitions never count, each with the
+ * line its destination sits on.
  */
-function linkTargets(markdown: string): string[] {
+export function linkTargets(markdown: string): LinkTarget[] {
   const targets: string[] = [];
 
   Bun.markdown.render(markdown, {
@@ -51,7 +61,43 @@ function linkTargets(markdown: string): string[] {
     },
   });
 
-  return targets;
+  // The parser reports destinations in document order, so each search
+  // starts after the previous one. A reference link's definition can sit
+  // anywhere, so a destination missing from there on is searched from the
+  // start.
+  const source = maskSkippedSource(markdown, { keepQuotes: true });
+  let cursor = 0;
+
+  return targets.map((target) => {
+    const destination = new RegExp(
+      `(?:\\]\\(\\s*<?|^ {0,3}\\[[^\\]]+\\]:\\s*<?)${RegExp.escape(target)}`,
+      "gm",
+    );
+    const position =
+      matchAfter(destination, source, cursor) ??
+      matchAfter(destination, source, 0);
+
+    if (position === undefined) {
+      return { target, line: undefined };
+    }
+
+    cursor = Math.max(cursor, position.end);
+
+    return { target, line: lineAt(markdown, position.start) };
+  });
+}
+
+function matchAfter(
+  pattern: RegExp,
+  text: string,
+  from: number,
+): { start: number; end: number } | undefined {
+  pattern.lastIndex = from;
+  const match = pattern.exec(text);
+
+  return match === null
+    ? undefined
+    : { start: match.index, end: match.index + match[0].length };
 }
 
 /**
@@ -74,16 +120,16 @@ export function missingLinkTargets(
   root: string,
   path: string,
   markdown: string,
-): string[] {
+): LinkTarget[] {
   return linkTargets(markdown)
     .filter(
-      (target) =>
+      ({ target }) =>
         target !== "" &&
         !/^[a-z][a-z0-9+.-]*:/i.test(target) &&
         !target.startsWith("#") &&
         !target.startsWith("//"),
     )
-    .filter((target) => {
+    .filter(({ target }) => {
       const file = decodeLinkPath(target.split(/[?#]/)[0] ?? "");
       const resolved = file.startsWith("/")
         ? join(root, file)
@@ -265,11 +311,18 @@ export async function validatePlugin(root: string): Promise<{
 
       return [
         ...missingLinkTargets(root, path, markdown).map(
-          (target) =>
-            `links to ${target}, which does not exist. Fix the path or remove the link.`,
+          ({ target, line }): PluginProblem => {
+            const message = `links to ${target}, which does not exist. Fix the path or remove the link.`;
+
+            return line === undefined
+              ? { path, message }
+              : { path, line, message };
+          },
         ),
-        ...(isSkill ? frontmatterProblems(path, markdown) : []),
-      ].map((message) => ({ path, message }));
+        ...(isSkill ? frontmatterProblems(path, markdown) : []).map(
+          (message) => ({ path, message }),
+        ),
+      ];
     }),
   );
 
@@ -288,8 +341,14 @@ export async function validatePlugin(root: string): Promise<{
   };
 }
 
-export function annotation({ path, message }: PluginProblem): string {
-  return `::error file=${path}::${path} ${message}`;
+/**
+ * Formats a problem as a GitHub workflow command, so the run attaches it
+ * to its file, and to its line when it has one.
+ */
+export function annotation({ path, line, message }: PluginProblem): string {
+  return line === undefined
+    ? `::error file=${path}::${path} ${message}`
+    : `::error file=${path},line=${line}::${path}:${line} ${message}`;
 }
 
 export async function main(root = process.cwd()): Promise<number> {

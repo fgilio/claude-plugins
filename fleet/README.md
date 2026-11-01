@@ -160,7 +160,7 @@ The file takes gitignore syntax: `#` comments, blank lines, a trailing `/` for a
 The plugin job validates what Claude Code loads:
 
 - `claude plugin validate .`, from a pinned Claude Code release, checks the plugin or marketplace manifest, skills, agents, commands and hooks.
-- [`scripts/validate-plugin.ts`](../scripts/validate-plugin.ts) adds what that command lets through: a `SKILL.md` whose frontmatter does not parse (Claude Code skips the skill without an error), a `name` that differs from the skill's directory, a missing or multi-line description, `user-invocable` or `disable-model-invocation` set to something other than a boolean, a malformed `hooks/hooks.json`, and a relative Markdown link to a missing file.
+- [`scripts/validate-plugin.ts`](../scripts/validate-plugin.ts) adds what that command lets through: a `SKILL.md` whose frontmatter does not parse (Claude Code skips the skill without an error), a `name` that differs from the skill's directory, a missing or multi-line description, `user-invocable` or `disable-model-invocation` set to something other than a boolean, a malformed `hooks/hooks.json`, and a relative Markdown link to a missing file, attached to the line of the link.
 - [`scripts/validate-json.ts`](../scripts/validate-json.ts) parses every `*.json` and `*.jsonc` file (and the `.json` files their tools read as JSONC, such as `tsconfig.json`) and prints the parser's message.
 
 A repository without a plugin turns the job off with `plugin: false`.

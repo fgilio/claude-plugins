@@ -7,6 +7,7 @@ import {
   annotation,
   frontmatterProblems,
   hooksProblems,
+  linkTargets,
   main,
   missingLinkTargets,
   validatePlugin,
@@ -207,10 +208,83 @@ describe("missingLinkTargets", () => {
       ].join("\n");
 
       expect(missingLinkTargets(root, "docs/guide.md", markdown)).toEqual([
-        "gone.md",
-        "/img/logo.png",
+        { target: "gone.md", line: 4 },
+        { target: "/img/logo.png", line: 4 },
       ]);
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("linkTargets", () => {
+  test("names the line of each link and skips a link in a code fence", () => {
+    const markdown = [
+      "# Guide",
+      "",
+      "```md",
+      "[fenced](gone.md)",
+      "```",
+      "",
+      "See [the guide](gone.md).",
+      "",
+      "> Quoted [link](quoted.md).",
+      "",
+      "Then ![a logo](",
+      "  img/logo.png) and [a reference][ref].",
+      "",
+      "[ref]: refs/target.md",
+    ].join("\n");
+
+    expect(linkTargets(markdown)).toEqual([
+      { target: "gone.md", line: 7 },
+      { target: "quoted.md", line: 9 },
+      { target: "img/logo.png", line: 11 },
+      { target: "refs/target.md", line: 14 },
+    ]);
+  });
+
+  test("names the definition line of a reference link used before it", () => {
+    expect(
+      linkTargets("[ref]: first.md\n\nUse [it][ref], then [this](first.md)."),
+    ).toEqual([
+      { target: "first.md", line: 1 },
+      { target: "first.md", line: 3 },
+    ]);
+  });
+
+  test("leaves the line out when the source writes the destination differently", () => {
+    expect(linkTargets("See <https://example.com/x>.")).toEqual([
+      { target: "https://example.com/x", line: undefined },
+    ]);
+  });
+});
+
+describe("missing links in main", () => {
+  test("report the line of each one", async () => {
+    const root = await gitRepo({
+      "README.md": [
+        "# Demo",
+        "",
+        "```md",
+        "[fenced](fenced-gone.md)",
+        "```",
+        "",
+        "See [one](one.md).",
+        "",
+        "And [two](two.md).",
+      ].join("\n"),
+    });
+    const output = captureOutput();
+
+    try {
+      expect(await main(root)).toBe(1);
+      expect(output.errors()).toEqual([
+        "::error file=README.md,line=7::README.md:7 links to one.md, which does not exist. Fix the path or remove the link.",
+        "::error file=README.md,line=9::README.md:9 links to two.md, which does not exist. Fix the path or remove the link.",
+      ]);
+    } finally {
+      output.restore();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -224,7 +298,7 @@ describe("malformed percent escapes", () => {
     try {
       expect(await main(root)).toBe(1);
       expect(output.errors()).toEqual([
-        "::error file=README.md::README.md links to docs/50%.md, which does not exist. Fix the path or remove the link.",
+        "::error file=README.md,line=1::README.md:1 links to docs/50%.md, which does not exist. Fix the path or remove the link.",
       ]);
     } finally {
       output.restore();
@@ -272,6 +346,7 @@ describe("validatePlugin", () => {
         problems: [
           {
             path: "README.md",
+            line: 1,
             message:
               "links to gone.md, which does not exist. Fix the path or remove the link.",
           },
@@ -293,6 +368,16 @@ describe("validatePlugin", () => {
 });
 
 describe("annotation", () => {
+  test("attaches the problem to its file and line", () => {
+    expect(
+      annotation({
+        path: "README.md",
+        line: 3,
+        message: "links to gone.md.",
+      }),
+    ).toBe("::error file=README.md,line=3::README.md:3 links to gone.md.");
+  });
+
   test("attaches the problem to its file", () => {
     expect(
       annotation({
