@@ -285,6 +285,15 @@ describe("linkTargets", () => {
     ]);
   });
 
+  test("locates only the targets it is asked for", () => {
+    expect(
+      linkTargets("[a](a.md) [b](b.md)\n", (target) => target === "b.md"),
+    ).toEqual([
+      { target: "a.md", line: undefined },
+      { target: "b.md", line: 1 },
+    ]);
+  });
+
   test("leaves the line out when the source writes the destination differently", () => {
     expect(linkTargets("See <https://example.com/x>.")).toEqual([
       { target: "https://example.com/x", line: undefined },

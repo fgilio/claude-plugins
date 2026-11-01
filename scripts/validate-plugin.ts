@@ -80,12 +80,17 @@ function destinations(markdown: string): string[] {
  * hold a destination is marked in turn, and the links whose destination
  * picks up the marker are the ones written there. Text that only looks
  * like a link, such as a code example or an escaped bracket, marks none.
+ * Each mark costs a parse, so only the targets isLocated accepts get a
+ * line.
  */
-export function linkTargets(markdown: string): LinkTarget[] {
+export function linkTargets(
+  markdown: string,
+  isLocated: (target: string) => boolean = () => true,
+): LinkTarget[] {
   const targets = destinations(markdown);
   const lines: (number | undefined)[] = targets.map(() => undefined);
   const candidates = [...new Set(targets)]
-    .filter((target) => target !== "")
+    .filter((target) => target !== "" && isLocated(target))
     .toSorted((a, b) => b.length - a.length);
 
   for (const match of markdown.matchAll(DESTINATION_START)) {
@@ -134,22 +139,27 @@ export function missingLinkTargets(
   path: string,
   markdown: string,
 ): LinkTarget[] {
-  return linkTargets(markdown)
-    .filter(
-      ({ target }) =>
-        target !== "" &&
-        !/^[a-z][a-z0-9+.-]*:/i.test(target) &&
-        !target.startsWith("#") &&
-        !target.startsWith("//"),
-    )
-    .filter(({ target }) => {
-      const file = decodeLinkPath(target.split(/[?#]/)[0] ?? "");
-      const resolved = file.startsWith("/")
-        ? join(root, file)
-        : join(root, dirname(path), file);
+  const isMissing = (target: string): boolean => {
+    if (
+      target === "" ||
+      /^[a-z][a-z0-9+.-]*:/i.test(target) ||
+      target.startsWith("#") ||
+      target.startsWith("//")
+    ) {
+      return false;
+    }
 
-      return !existsSync(resolved);
-    });
+    const file = decodeLinkPath(target.split(/[?#]/)[0] ?? "");
+    const resolved = file.startsWith("/")
+      ? join(root, file)
+      : join(root, dirname(path), file);
+
+    return !existsSync(resolved);
+  };
+
+  return linkTargets(markdown, isMissing).filter(({ target }) =>
+    isMissing(target),
+  );
 }
 
 export function frontmatterProblems(path: string, markdown: string): string[] {
