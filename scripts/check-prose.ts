@@ -6,10 +6,18 @@
 //
 // Usage: bun scripts/check-prose.ts [repository]
 // The repository defaults to the working directory, so CI can run the
-// hub's copy against the repository it checks.
+// hub's copy against the repository it checks. A .proseignore file at its
+// root (gitignore syntax) leaves out Markdown carried verbatim, such as a
+// quoted prompt by another author.
 import { join } from "node:path";
 
 import { filesGitWouldCommit } from "./git-files";
+import {
+  applyIgnorePatterns,
+  type IgnorePattern,
+  parseIgnorePatterns,
+} from "./ignore-patterns";
+import { lineAt, maskSkippedSource } from "./markdown-source";
 
 const CODE_OPEN = /^<(?:code|kbd|samp|pre)\b[^>]*>$/i;
 const CODE_CLOSE = /^<\/(?:code|kbd|samp|pre)\s*>$/i;
@@ -104,69 +112,6 @@ export function proseFragments(markdown: string): string[] {
   return prose;
 }
 
-const blank = (text: string) => text.replace(/[^\n]/g, " ");
-
-const LIST_ITEM = /^\s*(?:[-*+]|\d+[.)])\s/;
-
-const INDENTED = /^(?: {4}|\t)/;
-
-/**
- * Blanks out the source the prose check skips (fenced and indented code,
- * quotes, code spans and HTML comments) and keeps every offset, so a prose
- * fragment is located in prose and never in an earlier code example that
- * repeats it. Indented lines that continue a list item stay, since they
- * are prose.
- */
-export function maskSkippedSource(markdown: string): string {
-  let fence: string | null = null;
-  let inIndentedCode = false;
-  let previousBlank = true;
-  let inList = false;
-
-  const lines = markdown.split("\n").map((line) => {
-    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    const isBlank = line.trim() === "";
-
-    if (fence !== null) {
-      if (
-        marker !== undefined &&
-        marker[0] === fence[0] &&
-        marker.length >= fence.length
-      ) {
-        fence = null;
-      }
-
-      return blank(line);
-    }
-
-    if (marker !== undefined) {
-      fence = marker;
-      inIndentedCode = false;
-      return blank(line);
-    }
-
-    if (INDENTED.test(line) && (inIndentedCode || (previousBlank && !inList))) {
-      inIndentedCode = true;
-      previousBlank = false;
-      return blank(line);
-    }
-
-    if (!isBlank) {
-      inIndentedCode = false;
-      inList = LIST_ITEM.test(line) || (inList && INDENTED.test(line));
-    }
-
-    previousBlank = isBlank;
-
-    return /^ {0,3}>/.test(line) ? blank(line) : line;
-  });
-
-  return lines
-    .join("\n")
-    .replace(/<!--[\s\S]*?-->/g, blank)
-    .replace(/(`+)[^`][\s\S]*?\1/g, blank);
-}
-
 export function findProseProblems(markdown: string): ProseProblem[] {
   const problems: ProseProblem[] = [];
   const source = maskSkippedSource(markdown);
@@ -183,9 +128,7 @@ export function findProseProblems(markdown: string): ProseProblem[] {
       cursor = position + fragment.length;
     }
 
-    const line = markdown
-      .slice(0, position === -1 ? cursor : position)
-      .split("\n").length;
+    const line = lineAt(markdown, position === -1 ? cursor : position);
 
     // A URL in running text keeps its own punctuation.
     const words = fragment.replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, "");
@@ -204,11 +147,31 @@ export function markdownFiles(root: string): string[] {
   return filesGitWouldCommit(root, ["*.md"]);
 }
 
+export const PROSE_IGNORE = ".proseignore";
+
+export interface ProseIgnoreReport {
+  skipped: number;
+  unused: IgnorePattern[];
+}
+
 export async function checkProse(root: string): Promise<{
   checked: number;
+  ignored: ProseIgnoreReport | null;
   problems: FileProseProblem[];
 }> {
-  const paths = markdownFiles(root);
+  const ignoreFile = Bun.file(join(root, PROSE_IGNORE));
+  let paths = markdownFiles(root);
+  let ignored: ProseIgnoreReport | null = null;
+
+  if (await ignoreFile.exists()) {
+    const { kept, skipped, unused } = applyIgnorePatterns(
+      parseIgnorePatterns(await ignoreFile.text()),
+      paths,
+    );
+
+    paths = kept;
+    ignored = { skipped: skipped.length, unused };
+  }
 
   const problems = await Promise.all(
     paths.map(async (path) =>
@@ -218,7 +181,7 @@ export async function checkProse(root: string): Promise<{
     ),
   );
 
-  return { checked: paths.length, problems: problems.flat() };
+  return { checked: paths.length, ignored, problems: problems.flat() };
 }
 
 /**
@@ -229,8 +192,26 @@ export function annotation({ path, line, message }: FileProseProblem): string {
   return `::error file=${path},line=${line}::${path}:${line} ${message}`;
 }
 
+/**
+ * A warning for a .proseignore pattern that skips nothing, so a renamed
+ * directory never leaves a stale line behind.
+ */
+export function unusedPatternWarning({ line, source }: IgnorePattern): string {
+  return `::warning file=${PROSE_IGNORE},line=${line}::${PROSE_IGNORE}:${line} "${source}" matches no Markdown file. Fix the pattern or remove the line.`;
+}
+
 export async function main(root = process.cwd()): Promise<number> {
-  const { checked, problems } = await checkProse(root);
+  const { checked, ignored, problems } = await checkProse(root);
+
+  if (ignored !== null) {
+    for (const pattern of ignored.unused) {
+      console.error(unusedPatternWarning(pattern));
+    }
+
+    console.log(
+      `skipped ${ignored.skipped} Markdown ${ignored.skipped === 1 ? "file" : "files"} listed in ${PROSE_IGNORE}`,
+    );
+  }
 
   for (const problem of problems) {
     console.error(annotation(problem));

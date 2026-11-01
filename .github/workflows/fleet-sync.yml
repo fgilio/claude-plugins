@@ -1,0 +1,53 @@
+# Checks every plugin repository in the marketplace against fleet/ once a
+# month and opens one draft pull request in each repository that drifted.
+# See the Drift section of fleet/README.md.
+#
+# The workflow's own token stays read-only. Writes to the plugin
+# repositories go through the FLEET_SYNC_TOKEN secret, which only the
+# script's step sees, as GH_TOKEN.
+
+name: Fleet sync
+
+on:
+  schedule:
+    - cron: "17 6 1 * *"
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: One plugin repository (owner/name) to sync. Leave empty to sync every one the marketplace lists.
+        type: string
+        required: false
+        default: ""
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  sync:
+    name: Sync the plugin repositories
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      # The scripts import only Bun and Node built-ins, so no dependency is
+      # installed next to the token.
+      - name: Open a pull request in each repository that drifted
+        env:
+          GH_TOKEN: ${{ secrets.FLEET_SYNC_TOKEN }}
+          REPOSITORY: ${{ inputs.repository }}
+        run: bun scripts/fleet-sync-repos.ts --repository "$REPOSITORY"

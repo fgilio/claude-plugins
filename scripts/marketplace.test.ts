@@ -8,6 +8,7 @@ import {
   manifestMismatches,
   marketplaceProblems,
   pluginEntries,
+  pluginRepos,
   readmePlugins,
   sourceProblems,
   type PluginEntry,
@@ -147,6 +148,25 @@ describe("pluginEntries", () => {
     expect(
       pluginEntries({ plugins: [{ name: "a", description: "b" }, null] }),
     ).toEqual([]);
+  });
+});
+
+describe("pluginRepos", () => {
+  test("lists the hub's plugin repositories in the marketplace's order", () => {
+    expect(pluginRepos(marketplace)).toEqual(entries.map(({ repo }) => repo));
+  });
+
+  test("lists a repository shared by two plugins once", () => {
+    const source = { source: "github", repo: "acme/acme-skills" };
+
+    expect(
+      pluginRepos({
+        plugins: [
+          { name: "a", description: "A.", source },
+          { name: "b", description: "B.", source },
+        ],
+      }),
+    ).toEqual(["acme/acme-skills"]);
   });
 });
 
@@ -317,19 +337,70 @@ describe("main", () => {
     }
   });
 
-  test.each<[string[]]>([[[]], [["--check-sources", "a", "b"]], [["--force"]]])(
-    "refuses %p",
-    async (argv) => {
-      const output = captureOutput();
+  test("--list-repos prints one owner/name per line", async () => {
+    const root = await gitRepo({
+      ".claude-plugin/marketplace.json": JSON.stringify({
+        ...VALID_MARKETPLACE,
+        plugins: [
+          ...VALID_MARKETPLACE.plugins,
+          {
+            name: "acme-audit",
+            description: "Audits Acme Books catalogs.",
+            source: { source: "github", repo: "acme/acme-audit-skill" },
+          },
+        ],
+      }),
+    });
+    const output = captureOutput();
 
-      try {
-        expect(await main(argv, async () => null)).toBe(2);
-        expect(output.errors()).toContain(
-          "Usage: bun scripts/marketplace.ts --check-sources [repository]",
-        );
-      } finally {
-        output.restore();
-      }
-    },
-  );
+    try {
+      expect(await main(["--list-repos", root])).toBe(0);
+      expect(output.logged()).toEqual([
+        "acme/acme-books-skill",
+        "acme/acme-audit-skill",
+      ]);
+    } finally {
+      output.restore();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("--list-repos fails on a marketplace with a broken entry", async () => {
+    const root = await gitRepo({
+      ".claude-plugin/marketplace.json": JSON.stringify({
+        ...VALID_MARKETPLACE,
+        plugins: [{ name: "acme-books", description: "Reads." }],
+      }),
+    });
+    const output = captureOutput();
+
+    try {
+      expect(await main(["--list-repos", root])).toBe(1);
+      expect(output.logged()).toEqual([]);
+      expect(output.errors()[0]).toStartWith(
+        "::error file=.claude-plugin/marketplace.json::.claude-plugin/marketplace.json plugins[0].source is undefined.",
+      );
+    } finally {
+      output.restore();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test.each<[string[]]>([
+    [[]],
+    [["--check-sources", "a", "b"]],
+    [["--check-sources", "--list-repos"]],
+    [["--force"]],
+  ])("refuses %p", async (argv) => {
+    const output = captureOutput();
+
+    try {
+      expect(await main(argv, async () => null)).toBe(2);
+      expect(output.errors()).toContain(
+        "Usage: bun scripts/marketplace.ts --check-sources|--list-repos [repository]",
+      );
+    } finally {
+      output.restore();
+    }
+  });
 });

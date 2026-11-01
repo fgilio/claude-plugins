@@ -11,7 +11,7 @@ import {
   markdownFiles,
   proseFragments,
 } from "./check-prose";
-import { gitRepo } from "./test-support";
+import { captureOutput, gitRepo } from "./test-support";
 
 const HUB = join(import.meta.dir, "..");
 
@@ -169,6 +169,7 @@ describe("checkProse", () => {
     try {
       expect(await checkProse(root)).toEqual({
         checked: 3,
+        ignored: null,
         problems: [
           {
             path: "docs/guide.md",
@@ -209,6 +210,77 @@ describe("checkProse", () => {
         `Unable to list *.md with git in ${root}:`,
       );
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe(".proseignore", () => {
+  const VIOLATION = "Quoted text; kept as written.\n";
+
+  test("skips the files it lists, so a violation inside them passes", async () => {
+    const root = await gitRepo({
+      ".proseignore":
+        "# Prompts quoted verbatim from their authors\n\nskills/demo/prompts/\n**/*.generated.md\n",
+      "README.md": "Fine.\n",
+      "skills/demo/SKILL.md": "Fine.\n",
+      "skills/demo/prompts/audit.md": VIOLATION,
+      "docs/api.generated.md": VIOLATION,
+    });
+    const output = captureOutput();
+
+    try {
+      expect(await main(root)).toBe(0);
+      expect(output.errors()).toEqual([]);
+      expect(output.logged()).toEqual([
+        "skipped 2 Markdown files listed in .proseignore",
+        "checked the prose in 2 Markdown files",
+      ]);
+    } finally {
+      output.restore();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("still fails on the same violation outside the listed directory", async () => {
+    const root = await gitRepo({
+      ".proseignore": "skills/demo/prompts/\n",
+      "skills/demo/prompts/audit.md": VIOLATION,
+      "skills/demo/SKILL.md": VIOLATION,
+    });
+    const output = captureOutput();
+
+    try {
+      expect(await main(root)).toBe(1);
+      expect(output.errors()).toEqual([
+        "::error file=skills/demo/SKILL.md,line=1::skills/demo/SKILL.md:1 has a semicolon. Split it into two sentences.",
+      ]);
+      expect(output.logged()).toEqual([
+        "skipped 1 Markdown file listed in .proseignore",
+      ]);
+    } finally {
+      output.restore();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("warns about a pattern that matches nothing and still passes", async () => {
+    const root = await gitRepo({
+      ".proseignore": "# Comment\n\nvendor/prompts/\n",
+      "README.md": "Fine.\n",
+    });
+    const output = captureOutput();
+
+    try {
+      expect(await main(root)).toBe(0);
+      expect(output.errors()).toEqual([
+        '::warning file=.proseignore,line=3::.proseignore:3 "vendor/prompts/" matches no Markdown file. Fix the pattern or remove the line.',
+      ]);
+      expect(output.logged()).toContain(
+        "skipped 0 Markdown files listed in .proseignore",
+      );
+    } finally {
+      output.restore();
       await rm(root, { recursive: true, force: true });
     }
   });

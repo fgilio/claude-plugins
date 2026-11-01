@@ -13,10 +13,19 @@ import { existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 import { filesGitWouldCommit } from "./git-files";
+import { lineAt } from "./markdown-source";
 
 export interface PluginProblem {
   path: string;
+  /** The line the problem sits on, when it has one. */
+  line?: number;
   message: string;
+}
+
+export interface LinkTarget {
+  target: string;
+  /** Undefined when the destination is written differently in the source. */
+  line: number | undefined;
 }
 
 const BOOLEAN_KEYS = ["user-invocable", "disable-model-invocation"];
@@ -34,24 +43,79 @@ function isStringArray(value: unknown): value is string[] {
 }
 
 /**
- * Collects link and image destinations as a Markdown parser reads them, so
- * code blocks, code spans and unused definitions never count.
+ * Where a link destination can start: after "](" in an inline link, or
+ * after the label of a reference definition.
  */
-function linkTargets(markdown: string): string[] {
-  const targets: string[] = [];
+const DESTINATION_START =
+  /\]\(\s*<?|^ {0,3}\[(?:[^\]\\]|\\.)+\]:[ \t]*\n?[ \t]*<?/gm;
+
+const MARKER = "\uE000";
+
+/**
+ * Link and image destinations as a Markdown parser reads them, in document
+ * order, so code blocks, code spans and unused definitions never count.
+ */
+function destinations(markdown: string): string[] {
+  const found: string[] = [];
 
   Bun.markdown.render(markdown, {
     link: (children, { href }) => {
-      targets.push(href);
+      found.push(href);
       return children;
     },
     image: (children, { src }) => {
-      targets.push(src);
+      found.push(src);
       return children;
     },
   });
 
-  return targets;
+  return found;
+}
+
+/**
+ * Collects link and image destinations, each with the line it sits on: an
+ * inline link's own line, or the definition line of a reference link.
+ *
+ * Bun.markdown reports no positions, so each place in the source that could
+ * hold a destination is marked in turn, and the links whose destination
+ * picks up the marker are the ones written there. Text that only looks
+ * like a link, such as a code example or an escaped bracket, marks none.
+ * Each mark costs a parse, so only the targets isLocated accepts get a
+ * line.
+ */
+export function linkTargets(
+  markdown: string,
+  isLocated: (target: string) => boolean = () => true,
+): LinkTarget[] {
+  const targets = destinations(markdown);
+  const lines: (number | undefined)[] = targets.map(() => undefined);
+  const candidates = [...new Set(targets)]
+    .filter((target) => target !== "" && isLocated(target))
+    .toSorted((a, b) => b.length - a.length);
+
+  for (const match of markdown.matchAll(DESTINATION_START)) {
+    const start = match.index + match[0].length;
+    const target = candidates.find((candidate) =>
+      markdown.startsWith(candidate, start),
+    );
+
+    if (target === undefined) {
+      continue;
+    }
+
+    const end = start + target.length;
+    const marked = destinations(
+      markdown.slice(0, end) + MARKER + markdown.slice(end),
+    );
+
+    marked.forEach((destination, index) => {
+      if (destination.includes(MARKER) && lines[index] === undefined) {
+        lines[index] = lineAt(markdown, match.index);
+      }
+    });
+  }
+
+  return targets.map((target, index) => ({ target, line: lines[index] }));
 }
 
 /**
@@ -74,23 +138,28 @@ export function missingLinkTargets(
   root: string,
   path: string,
   markdown: string,
-): string[] {
-  return linkTargets(markdown)
-    .filter(
-      (target) =>
-        target !== "" &&
-        !/^[a-z][a-z0-9+.-]*:/i.test(target) &&
-        !target.startsWith("#") &&
-        !target.startsWith("//"),
-    )
-    .filter((target) => {
-      const file = decodeLinkPath(target.split(/[?#]/)[0] ?? "");
-      const resolved = file.startsWith("/")
-        ? join(root, file)
-        : join(root, dirname(path), file);
+): LinkTarget[] {
+  const isMissing = (target: string): boolean => {
+    if (
+      target === "" ||
+      /^[a-z][a-z0-9+.-]*:/i.test(target) ||
+      target.startsWith("#") ||
+      target.startsWith("//")
+    ) {
+      return false;
+    }
 
-      return !existsSync(resolved);
-    });
+    const file = decodeLinkPath(target.split(/[?#]/)[0] ?? "");
+    const resolved = file.startsWith("/")
+      ? join(root, file)
+      : join(root, dirname(path), file);
+
+    return !existsSync(resolved);
+  };
+
+  return linkTargets(markdown, isMissing).filter(({ target }) =>
+    isMissing(target),
+  );
 }
 
 export function frontmatterProblems(path: string, markdown: string): string[] {
@@ -265,11 +334,18 @@ export async function validatePlugin(root: string): Promise<{
 
       return [
         ...missingLinkTargets(root, path, markdown).map(
-          (target) =>
-            `links to ${target}, which does not exist. Fix the path or remove the link.`,
+          ({ target, line }): PluginProblem => {
+            const message = `links to ${target}, which does not exist. Fix the path or remove the link.`;
+
+            return line === undefined
+              ? { path, message }
+              : { path, line, message };
+          },
         ),
-        ...(isSkill ? frontmatterProblems(path, markdown) : []),
-      ].map((message) => ({ path, message }));
+        ...(isSkill ? frontmatterProblems(path, markdown) : []).map(
+          (message) => ({ path, message }),
+        ),
+      ];
     }),
   );
 
@@ -288,8 +364,14 @@ export async function validatePlugin(root: string): Promise<{
   };
 }
 
-export function annotation({ path, message }: PluginProblem): string {
-  return `::error file=${path}::${path} ${message}`;
+/**
+ * Formats a problem as a GitHub workflow command, so the run attaches it
+ * to its file, and to its line when it has one.
+ */
+export function annotation({ path, line, message }: PluginProblem): string {
+  return line === undefined
+    ? `::error file=${path}::${path} ${message}`
+    : `::error file=${path},line=${line}::${path}:${line} ${message}`;
 }
 
 export async function main(root = process.cwd()): Promise<number> {
