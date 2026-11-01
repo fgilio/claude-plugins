@@ -155,6 +155,8 @@ The plugin job validates what Claude Code loads:
 
 A repository without a plugin turns the job off with `plugin: false`.
 
+`bun test` stays offline in every repository. A check that reads another repository (such as the hub comparing each marketplace entry with its plugin's `plugin.json`) runs as its own CI job, so an outage never reads as a failing test.
+
 ### Workflows: actionlint and zizmor
 
 actionlint checks every workflow's syntax, expressions and inline scripts. zizmor audits them for security problems, such as a template expression in a `run:` script or a checkout that keeps its token. Any finding fails the job.

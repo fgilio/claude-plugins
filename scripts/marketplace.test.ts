@@ -1,18 +1,20 @@
 import { describe, expect, test } from "bun:test";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
   cloudSetupPlugins,
+  main,
   manifestMismatches,
   marketplaceProblems,
   pluginEntries,
   readmePlugins,
+  sourceProblems,
   type PluginEntry,
 } from "./marketplace";
+import { captureOutput, gitRepo } from "./test-support";
 
-// MARKETPLACE_ROOT points the hub checks at another checkout, such as a
-// temporary copy with a planted mistake.
-const ROOT = process.env["MARKETPLACE_ROOT"] ?? join(import.meta.dir, "..");
+const ROOT = join(import.meta.dir, "..");
 
 const marketplace: unknown = await Bun.file(
   join(ROOT, ".claude-plugin/marketplace.json"),
@@ -22,39 +24,11 @@ const entries = pluginEntries(marketplace);
 
 const names = entries.map(({ name }) => name);
 
-/**
- * Reads a plugin's manifest from the default branch of its public
- * repository. raw.githubusercontent.com needs no token, so the check runs
- * the same in CI and locally.
- */
-async function fetchManifest(repo: string): Promise<unknown> {
-  const url = `https://raw.githubusercontent.com/${repo}/HEAD/.claude-plugin/plugin.json`;
-  const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-
-  if (!response.ok) {
-    throw new Error(
-      `${repo} has no .claude-plugin/plugin.json on its default branch, or the repository does not exist (HTTP ${response.status} from ${url}). Fix source.repo in the marketplace.`,
-    );
-  }
-
-  return JSON.parse(await response.text());
-}
-
 describe("the hub's marketplace", () => {
   test("has every field Claude Code reads", () => {
     expect(marketplaceProblems(marketplace)).toEqual([]);
     expect(entries.length).toBeGreaterThan(0);
   });
-
-  test.each(entries)(
-    "$name matches the plugin.json in $repo",
-    async (entry) => {
-      expect(
-        manifestMismatches(entry, await fetchManifest(entry.repo), names),
-      ).toEqual([]);
-    },
-    30_000,
-  );
 
   test("cloud-setup.sh installs only plugins the marketplace lists", async () => {
     const installed = cloudSetupPlugins(
@@ -278,4 +252,84 @@ describe("readmePlugins", () => {
       ),
     ).toEqual(["acme-books", "acme-reader"]);
   });
+});
+
+describe("sourceProblems", () => {
+  test("is empty when every plugin.json matches its entry", async () => {
+    expect(
+      await sourceProblems(VALID_MARKETPLACE, async () => ({
+        name: "acme-books",
+        description: "Reads Acme Books catalogs.",
+      })),
+    ).toEqual([]);
+  });
+
+  test("names a repository it cannot read", async () => {
+    expect(
+      await sourceProblems(VALID_MARKETPLACE, async (repo) => {
+        throw new Error(`${repo} has no .claude-plugin/plugin.json`);
+      }),
+    ).toEqual(["acme/acme-books-skill has no .claude-plugin/plugin.json"]);
+  });
+});
+
+async function marketplaceRepo(): Promise<string> {
+  return gitRepo({
+    ".claude-plugin/marketplace.json": JSON.stringify(VALID_MARKETPLACE),
+  });
+}
+
+describe("main", () => {
+  test("--check-sources passes when every source matches", async () => {
+    const root = await marketplaceRepo();
+    const output = captureOutput();
+
+    try {
+      expect(
+        await main(["--check-sources", root], async () => ({
+          name: "acme-books",
+          description: "Reads Acme Books catalogs.",
+        })),
+      ).toBe(0);
+    } finally {
+      output.restore();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("--check-sources fails with one annotation per mismatch, naming the value to copy", async () => {
+    const root = await marketplaceRepo();
+    const output = captureOutput();
+
+    try {
+      expect(
+        await main(["--check-sources", root], async () => ({
+          name: "acme-books",
+          description: "Reads catalogs.",
+        })),
+      ).toBe(1);
+      expect(output.errors()).toEqual([
+        '::error file=.claude-plugin/marketplace.json::acme/acme-books-skill: the marketplace description of acme-books differs from plugin.json. Set it to "Reads catalogs.".',
+      ]);
+    } finally {
+      output.restore();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test.each<[string[]]>([[[]], [["--check-sources", "a", "b"]], [["--force"]]])(
+    "refuses %p",
+    async (argv) => {
+      const output = captureOutput();
+
+      try {
+        expect(await main(argv, async () => null)).toBe(2);
+        expect(output.errors()).toContain(
+          "Usage: bun scripts/marketplace.ts --check-sources [repository]",
+        );
+      } finally {
+        output.restore();
+      }
+    },
+  );
 });

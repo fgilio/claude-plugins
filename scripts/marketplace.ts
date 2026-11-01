@@ -1,5 +1,14 @@
+#!/usr/bin/env bun
+
 // Checks for .claude-plugin/marketplace.json and the files that repeat its
-// plugin list. scripts/marketplace.test.ts runs them on the hub.
+// plugin list. scripts/marketplace.test.ts runs the local ones on the hub.
+//
+// Usage: bun scripts/marketplace.ts --check-sources [repository]
+// Fetches each listed plugin's plugin.json from GitHub and compares it with
+// its marketplace entry. It needs the network, so it runs as its own CI
+// job and never under bun test.
+import { join } from "node:path";
+import { parseArgs } from "node:util";
 
 export interface PluginEntry {
   name: string;
@@ -198,4 +207,107 @@ export function readmePlugins(readme: string): string[] {
   return [...readme.matchAll(/^- \*\*([a-z0-9-]+)\*\*/gm)]
     .map(([, name]) => name)
     .filter((name) => name !== undefined);
+}
+
+export type ManifestFetcher = (repo: string) => Promise<unknown>;
+
+/**
+ * Reads a plugin's manifest from the default branch of its public
+ * repository. raw.githubusercontent.com needs no token, so the check runs
+ * the same in CI and locally.
+ */
+async function fetchManifest(repo: string): Promise<unknown> {
+  const url = `https://raw.githubusercontent.com/${repo}/HEAD/.claude-plugin/plugin.json`;
+  const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+
+  if (!response.ok) {
+    throw new Error(
+      `${repo} has no .claude-plugin/plugin.json on its default branch, or the repository does not exist (HTTP ${response.status} from ${url}). Fix source.repo in the marketplace.`,
+    );
+  }
+
+  return JSON.parse(await response.text());
+}
+
+/**
+ * Compares every marketplace entry with the plugin.json in its repository.
+ * A repository that cannot be read counts as a problem, named with why.
+ */
+export async function sourceProblems(
+  marketplace: unknown,
+  fetcher: ManifestFetcher = fetchManifest,
+): Promise<string[]> {
+  const entries = pluginEntries(marketplace);
+  const names = entries.map(({ name }) => name);
+
+  const problems = await Promise.all(
+    entries.map(async (entry) => {
+      try {
+        return manifestMismatches(entry, await fetcher(entry.repo), names);
+      } catch (error) {
+        return [error instanceof Error ? error.message : String(error)];
+      }
+    }),
+  );
+
+  return problems.flat();
+}
+
+const MARKETPLACE_PATH = ".claude-plugin/marketplace.json";
+
+const USAGE = "Usage: bun scripts/marketplace.ts --check-sources [repository]";
+
+export async function main(
+  argv: string[],
+  fetcher: ManifestFetcher = fetchManifest,
+): Promise<number> {
+  let parsed;
+
+  try {
+    parsed = parseArgs({
+      args: argv,
+      allowPositionals: true,
+      options: { "check-sources": { type: "boolean", default: false } },
+    });
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    console.error(USAGE);
+
+    return 2;
+  }
+
+  const { positionals, values } = parsed;
+
+  if (!values["check-sources"] || positionals.length > 1) {
+    console.error(USAGE);
+
+    return 2;
+  }
+
+  const root = positionals[0] ?? process.cwd();
+  const marketplace: unknown = await Bun.file(
+    join(root, MARKETPLACE_PATH),
+  ).json();
+  const problems = [
+    ...marketplaceProblems(marketplace),
+    ...(await sourceProblems(marketplace, fetcher)),
+  ];
+
+  for (const problem of problems) {
+    console.error(`::error file=${MARKETPLACE_PATH}::${problem}`);
+  }
+
+  if (problems.length > 0) {
+    return 1;
+  }
+
+  console.log(
+    `${pluginEntries(marketplace).length} plugins match the plugin.json in their repositories.`,
+  );
+
+  return 0;
+}
+
+if (import.meta.main) {
+  process.exit(await main(process.argv.slice(2)));
 }

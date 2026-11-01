@@ -1,3 +1,4 @@
+import { spyOn } from "bun:test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,4 +19,22 @@ export async function gitRepo(files: Record<string, string>): Promise<string> {
   Bun.spawnSync(["git", "init", "--quiet"], { cwd: root });
 
   return root;
+}
+
+/**
+ * Silences console.log and console.error and hands back what they printed.
+ * The caller restores them.
+ */
+export function captureOutput() {
+  const log = spyOn(console, "log").mockImplementation(() => undefined);
+  const error = spyOn(console, "error").mockImplementation(() => undefined);
+
+  return {
+    logged: () => log.mock.calls.map((call) => call.join(" ")),
+    errors: () => error.mock.calls.map((call) => call.join(" ")),
+    restore: () => {
+      log.mockRestore();
+      error.mockRestore();
+    },
+  };
 }

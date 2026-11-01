@@ -51,7 +51,7 @@ bun install
 bun run check
 ```
 
-`bun install` installs the pinned tools from `bun.lock` and the pre-commit hook, which formats and lints the staged files. `bun run check` runs the format, lint, type, Markdown, prose and test gates that CI runs. [fleet/README.md](fleet/README.md) describes the standard every repository in this marketplace follows, and the shared workflow that checks it.
+`bun install` installs the pinned tools from `bun.lock` and the pre-commit hook, which formats and lints the staged files. `bun run check` runs the format, lint, type, Markdown, prose and test gates that CI runs, then compares each marketplace entry with the `plugin.json` in its repository (this step reads GitHub). [fleet/README.md](fleet/README.md) describes the standard every repository in this marketplace follows, and the shared workflow that checks it.
 
 ## License
 

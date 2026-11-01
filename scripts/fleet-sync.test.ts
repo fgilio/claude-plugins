@@ -1,4 +1,4 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { readdir, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 
@@ -12,26 +12,11 @@ import {
   syncStatus,
   syncWithFleet,
 } from "./fleet-sync";
-import { gitRepo } from "./test-support";
+import { captureOutput, gitRepo } from "./test-support";
 
 const HUB = join(import.meta.dir, "..");
 
 const bytes = (text: string) => new TextEncoder().encode(text);
-
-// Silences the CLI's output and hands back what it printed.
-function captureOutput() {
-  const log = spyOn(console, "log").mockImplementation(() => undefined);
-  const error = spyOn(console, "error").mockImplementation(() => undefined);
-
-  return {
-    logged: () => log.mock.calls.map((call) => call.join(" ")),
-    errors: () => error.mock.calls.map((call) => call.join(" ")),
-    restore: () => {
-      log.mockRestore();
-      error.mockRestore();
-    },
-  };
-}
 
 describe("FLEET_FILES", () => {
   test("every listed source exists under fleet/", async () => {

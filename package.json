@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "bun@1.4.4",
   "scripts": {
-    "check": "bun run fmt:check && bun run lint && bun run typecheck && bun run lint:md && bun run check:prose && bun test",
+    "check": "bun run fmt:check && bun run lint && bun run typecheck && bun run lint:md && bun run check:prose && bun test && bun run check:sources",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "oxlint --type-aware --deny-warnings .",
@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "lint:md": "markdownlint-cli2",
     "check:prose": "bun scripts/check-prose.ts",
+    "check:sources": "bun scripts/marketplace.ts --check-sources",
     "knip": "knip"
   },
   "trustedDependencies": [
