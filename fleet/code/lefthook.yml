@@ -12,7 +12,7 @@ pre-commit:
   parallel: false
   jobs:
     - name: fix:ts-lint
-      run: bun run oxlint --type-aware --deny-warnings --fix {staged_files}
+      run: bun run oxlint --type-aware --deny-warnings --no-error-on-unmatched-pattern --fix {staged_files}
       glob: "**/*.{ts,mts,js,mjs,cjs}"
       stage_fixed: true
     - name: fix:ts-format
