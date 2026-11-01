@@ -19,11 +19,33 @@ export interface IgnoreResult {
 }
 
 /**
- * Escapes the glob syntax Bun.Glob reads and gitignore does not, so braces
- * stay literal characters.
+ * The POSIX character classes git accepts inside brackets, as the ranges
+ * Bun.Glob reads.
  */
-function escapeBraces(pattern: string): string {
-  return pattern.replace(/[{}]/g, (brace) => `\\${brace}`);
+const CHARACTER_CLASSES: Record<string, string> = {
+  alnum: "a-zA-Z0-9",
+  alpha: "a-zA-Z",
+  blank: " \\t",
+  digit: "0-9",
+  lower: "a-z",
+  punct: "!-/:-@\\[-`{-~",
+  space: " \\t\\n\\r\\f\\v",
+  upper: "A-Z",
+  xdigit: "0-9a-fA-F",
+};
+
+/**
+ * Turns a gitignore glob into one Bun.Glob reads the same way: braces stay
+ * literal characters, and a character class such as [[:digit:]] becomes
+ * its range. An unknown class stays as written.
+ */
+function toBunGlob(pattern: string): string {
+  return pattern
+    .replace(/[{}]/g, (brace) => `\\${brace}`)
+    .replace(
+      /\[:([a-z]+):\]/g,
+      (written, name: string) => CHARACTER_CLASSES[name] ?? written,
+    );
 }
 
 function parseLine(text: string, line: number): IgnorePattern | null {
@@ -56,7 +78,7 @@ function parseLine(text: string, line: number): IgnorePattern | null {
     source,
     negated,
     directoryOnly,
-    glob: new Bun.Glob(escapeBraces(anchored ? body : `**/${body}`)),
+    glob: new Bun.Glob(toBunGlob(anchored ? body : `**/${body}`)),
   };
 }
 

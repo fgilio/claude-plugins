@@ -96,6 +96,23 @@ describe("applyIgnorePatterns", () => {
     ).toEqual(["!quoted.md"]);
   });
 
+  test.each<[string, string, string]>([
+    ["[[:digit:]].md", "7.md", "x.md"],
+    ["[[:alpha:]_]*.md", "_notes.md", "1notes.md"],
+    ["[[:upper:]]*.md", "README.md", "readme.md"],
+    ["[![:digit:]].md", "x.md", "7.md"],
+  ])(
+    "reads the character class in %p as git does",
+    (pattern, matched, kept) => {
+      expect(
+        applyIgnorePatterns(parseIgnorePatterns(`${pattern}\n`), [
+          matched,
+          kept,
+        ]).skipped,
+      ).toEqual([matched]);
+    },
+  );
+
   test("keeps braces literal", () => {
     expect(
       applyIgnorePatterns(parseIgnorePatterns("{a,b}.md\n"), ["a.md"]).skipped,
