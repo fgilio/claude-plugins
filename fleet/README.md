@@ -113,7 +113,7 @@ bun scripts/fleet-sync.ts ../acme-books-skill --profile prose --check
 The `correctness`, `suspicious` and `perf` categories are errors, with the TypeScript, unicorn, oxc, import and node plugins. On top of them:
 
 - `eqeqeq`: compare with `===`.
-- `no-unused-vars`: an unused name is an error. Prefix an argument with `_` when a signature needs it.
+- `no-unused-vars`: an unused name is an error, an unused import included. Prefix an argument with `_` when a signature needs it. `oxlint --fix` does not remove an unused import, so the hook stops the commit until you delete it.
 - `typescript/consistent-type-imports`: import types with `import type`, so the import disappears at runtime.
 - `typescript/switch-exhaustiveness-check`: a `switch` over a union handles every member.
 - `typescript/restrict-template-expressions`: a template interpolates strings and numbers, never an object that prints as `[object Object]`.
