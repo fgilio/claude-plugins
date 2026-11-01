@@ -11,7 +11,7 @@
         "source": "github",
         "repo": "fgilio/coding-skill"
       },
-      "description": "Franco's code style preferences."
+      "description": "Franco's code style and change-landing preferences."
     },
     {
       "name": "skill-design-philosophy",
@@ -51,7 +51,7 @@
         "source": "github",
         "repo": "fgilio/tool-lines-mod"
       },
-      "description": "Draws each tool call as one compact line; click a line to see its full input and result in a side pane. Fork of Tickloop/claude-mods tool-lines."
+      "description": "Draws each tool call as one compact line; click a line to see its full input and result in a side pane"
     },
     {
       "name": "codex-partner",

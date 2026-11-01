@@ -11,14 +11,14 @@ Franco Gilio's plugin marketplace for [Claude Code](https://code.claude.com). Ad
 
 ## Plugins
 
-- **coding** ([fgilio/coding-skill](https://github.com/fgilio/coding-skill)): Franco's code style preferences.
+- **coding** ([fgilio/coding-skill](https://github.com/fgilio/coding-skill)): Franco's code style and change-landing preferences.
 - **skill-design-philosophy** ([fgilio/skill-design-philosophy-skill](https://github.com/fgilio/skill-design-philosophy-skill)): design philosophy for creating outstanding Claude Code skills.
 - **polish** ([fgilio/polish-skill](https://github.com/fgilio/polish-skill)): reviews a scope in search of simplifications, unifications, and reductions in cognitive load.
 - **fgilio-review** ([fgilio/fgilio-review-skill](https://github.com/fgilio/fgilio-review-skill)): audits a scope through the `coding` and `polish` skills merged into one prioritized list.
 - **fgilio-audit** ([fgilio/fgilio-audit-skill](https://github.com/fgilio/fgilio-audit-skill)): audit-only search for materially useful simplifications in a diff, branch, project, or multi-repo feature. Based on [Aaron Francis's "Audit your codebase" prompt](https://gist.github.com/aarondfrancis/8735edbe48532f97ee5ea818db4dbd47).
 - **tool-lines** ([fgilio/tool-lines-mod](https://github.com/fgilio/tool-lines-mod)): draws each tool call as one compact line. Click a line to see its full input and result in a side pane. Fork of the `tool-lines` mod in [Tickloop/claude-mods](https://github.com/Tickloop/claude-mods).
 - **codex-partner** ([fgilio/codex-partner-skill](https://github.com/fgilio/codex-partner-skill)): talk with OpenAI Codex from Claude Code, as a one-shot second opinion, a code review, or a named partner that remembers the conversation. Works in local and cloud sessions.
-- **ship-it** ([fgilio/ship-it-skill](https://github.com/fgilio/ship-it-skill)): ships a change: granular commits, push, GitHub Actions watched until green, the PR, and the follow-up on its review threads (address, reply, resolve).
+- **ship-it** ([fgilio/ship-it-skill](https://github.com/fgilio/ship-it-skill)): ships a change: focused commits, push, CI watched until green, the PR with proof and a reading guide, review rounds with a decision on every finding, and, on request, merge, deploy and a check of production.
 
 ## Cloud sessions
 
