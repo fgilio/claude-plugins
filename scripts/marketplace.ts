@@ -195,7 +195,7 @@ export function cloudSetupPlugins(script: string): string[] {
  * Plugin names the README's plugin list shows in bold, as "**name**".
  */
 export function readmePlugins(readme: string): string[] {
-  return [...readme.matchAll(/^- \*\*([a-z0-9-]+)\*\*/gm)].flatMap(([, name]) =>
-    name === undefined ? [] : [name],
-  );
+  return [...readme.matchAll(/^- \*\*([a-z0-9-]+)\*\*/gm)]
+    .map(([, name]) => name)
+    .filter((name) => name !== undefined);
 }
