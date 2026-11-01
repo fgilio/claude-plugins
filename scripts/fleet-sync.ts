@@ -88,7 +88,7 @@ export function driftReport(
     .filter(({ status }) => status !== "same")
     .map(
       ({ target, source, status }) =>
-        `${target} is ${status === "missing" ? "missing" : "different from"} fleet/${source}. Run: ${syncCommand(targetDir, profile)}`,
+        `${target} ${status === "missing" ? "does not exist. Its canonical copy is" : "differs from"} fleet/${source}. Run: ${syncCommand(targetDir, profile)}`,
     );
 }
 

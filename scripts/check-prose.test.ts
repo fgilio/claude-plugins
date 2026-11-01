@@ -88,6 +88,26 @@ describe("findProseProblems", () => {
     ]);
   });
 
+  test.each<[string, string]>([
+    ["a fenced block", "```text\nOne; two.\n```"],
+    ["a tilde fence", "~~~\nOne; two.\n~~~"],
+    ["a quote", "> One; two."],
+    ["an HTML comment", "<!--\nOne; two.\n-->"],
+    ["a code span", "Run `One; two.` here."],
+  ])(
+    "names the prose line when %s earlier repeats the sentence",
+    (_case, skipped) => {
+      const text = `${skipped}\n\nOne; two.\n`;
+
+      expect(findProseProblems(text)).toEqual([
+        {
+          line: skipped.split("\n").length + 2,
+          message: "has a semicolon. Split it into two sentences.",
+        },
+      ]);
+    },
+  );
+
   test("reports a character written as an entity on the line where the text before it ends", () => {
     expect(findProseProblems("First line.\n\nSee &#8212; here.")).toEqual([
       {

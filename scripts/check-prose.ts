@@ -92,12 +92,52 @@ export function proseFragments(markdown: string): string[] {
   return prose;
 }
 
+const blank = (text: string) => text.replace(/[^\n]/g, " ");
+
+/**
+ * Blanks out the source the prose check skips (fenced code, quotes, code
+ * spans and HTML comments) and keeps every offset, so a prose fragment is
+ * located in prose and never in an earlier code example that repeats it.
+ */
+export function maskSkippedSource(markdown: string): string {
+  let fence: string | null = null;
+
+  const lines = markdown.split("\n").map((line) => {
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+
+    if (fence === null && marker !== undefined) {
+      fence = marker;
+      return blank(line);
+    }
+
+    if (fence !== null) {
+      if (
+        marker !== undefined &&
+        marker[0] === fence[0] &&
+        marker.length >= fence.length
+      ) {
+        fence = null;
+      }
+
+      return blank(line);
+    }
+
+    return /^ {0,3}>/.test(line) ? blank(line) : line;
+  });
+
+  return lines
+    .join("\n")
+    .replace(/<!--[\s\S]*?-->/g, blank)
+    .replace(/(`+)[^`][\s\S]*?\1/g, blank);
+}
+
 export function findProseProblems(markdown: string): ProseProblem[] {
   const problems: ProseProblem[] = [];
+  const source = maskSkippedSource(markdown);
   let cursor = 0;
 
   for (const fragment of proseFragments(markdown)) {
-    const position = markdown.indexOf(fragment, cursor);
+    const position = source.indexOf(fragment, cursor);
 
     if (position !== -1) {
       cursor = position + fragment.length;

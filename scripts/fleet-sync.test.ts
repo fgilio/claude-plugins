@@ -141,11 +141,11 @@ describe("driftReport", () => {
 
     expect(report).toHaveLength(2);
     expect(report[0]).toStartWith(
-      "lefthook.yml is different from fleet/code/lefthook.yml. Run: bun ",
+      "lefthook.yml differs from fleet/code/lefthook.yml. Run: bun ",
     );
     expect(report[0]).toEndWith("fleet-sync.ts ../acme-books --profile code");
     expect(report[1]).toStartWith(
-      ".github/dependabot.yml is missing fleet/shared/.github/dependabot.yml. Run: bun ",
+      ".github/dependabot.yml does not exist. Its canonical copy is fleet/shared/.github/dependabot.yml. Run: bun ",
     );
   });
 
@@ -250,7 +250,7 @@ describe("main", () => {
       expect(await main([root, "--profile", "code", "--check"])).toBe(1);
       expect(output.errors()).toEqual([
         expect.stringMatching(
-          /^tsconfig\.json is different from fleet\/code\/tsconfig\.json\. Run: bun \S*fleet-sync\.ts \S+ --profile code$/,
+          /^tsconfig\.json differs from fleet\/code\/tsconfig\.json\. Run: bun \S*fleet-sync\.ts \S+ --profile code$/,
         ),
       ]);
       expect(await Bun.file(join(root, "tsconfig.json")).text()).toBe("{}\n");
@@ -329,7 +329,7 @@ describe("main", () => {
 
       expect(run.exitCode).toBe(1);
       expect(run.stderr.toString()).toContain(
-        "lefthook.yml is missing fleet/prose/lefthook.yml.",
+        "lefthook.yml does not exist. Its canonical copy is fleet/prose/lefthook.yml.",
       );
     } finally {
       await rm(root, { recursive: true, force: true });
