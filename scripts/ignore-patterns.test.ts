@@ -87,6 +87,15 @@ describe("applyIgnorePatterns", () => {
     ]);
   });
 
+  test("reads a ! after an anchoring slash as a literal character", () => {
+    expect(
+      applyIgnorePatterns(parseIgnorePatterns("/!quoted.md\n"), [
+        "!quoted.md",
+        "README.md",
+      ]).skipped,
+    ).toEqual(["!quoted.md"]);
+  });
+
   test("keeps braces literal", () => {
     expect(
       applyIgnorePatterns(parseIgnorePatterns("{a,b}.md\n"), ["a.md"]).skipped,

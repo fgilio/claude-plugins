@@ -47,7 +47,9 @@ function parseLine(text: string, line: number): IgnorePattern | null {
   // A slash before the end anchors the pattern to the root, as in git.
   // Without one, the pattern matches a name at any depth.
   const anchored = body.includes("/");
-  body = body.replace(/^\//, "");
+  // A leading ! left after the anchor is a literal character, which
+  // Bun.Glob would read as a negation.
+  body = body.replace(/^\//, "").replace(/^!/, "\\!");
 
   return {
     line,
