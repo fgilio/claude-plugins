@@ -253,6 +253,12 @@ describe("linkTargets", () => {
     ]);
   });
 
+  test("names the inline link, never an unused definition with the same path before it", () => {
+    expect(
+      linkTargets("[unused]: missing.md\n\n[broken](missing.md)\n"),
+    ).toEqual([{ target: "missing.md", line: 3 }]);
+  });
+
   test("leaves the line out when the source writes the destination differently", () => {
     expect(linkTargets("See <https://example.com/x>.")).toEqual([
       { target: "https://example.com/x", line: undefined },
