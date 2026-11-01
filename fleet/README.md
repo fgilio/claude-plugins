@@ -119,6 +119,8 @@ The `correctness`, `suspicious` and `perf` categories are errors, with the TypeS
 - `typescript/restrict-template-expressions`: a template interpolates strings and numbers, never an object that prints as `[object Object]`.
 - `typescript/consistent-type-assertions` with `assertionStyle: never`: `x as T` is an error. Write a type guard or validate the value. `as const` stays allowed. Where a cast is the only way, disable the rule on that line with the reason on the line above.
 
+Beyond these, `.oxlintrc.json` turns on the rules with an ESLint equivalent that cost the fleet nothing or a handful of real fixes: a promise never stands where a condition or a void callback is expected, only `Error` objects are thrown, no `!` non-null assertion, and `const` over `let` and `var`, among others. The config is the list. The `no-unsafe-*` family stays off until the code has typed boundaries: it found 302 problems across the fleet, 279 of them in one declarations file.
+
 Test fixtures are linted too. When a fixture must break a rule, add an `overrides` entry for its path with the reason in a `//` comment.
 
 ### Types: tsc
