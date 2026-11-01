@@ -145,6 +145,16 @@ Every rule is on except line length (`MD013`), since the formatter keeps paragra
 
 Each finding names the file and line, and CI attaches it to that line of the diff.
 
+A repository that carries text by another author verbatim (a quoted prompt, a vendored document) lists it in a `.proseignore` file at its root, so the check never asks you to rewrite it:
+
+```gitignore
+# Prompts quoted as their authors wrote them
+skills/acme-books-audit/prompts/
+**/*.generated.md
+```
+
+The file takes gitignore syntax: `#` comments, blank lines, a trailing `/` for a directory, `*` and `**` globs, a leading `/` to anchor a pattern to the root and `!` to keep a file again. The check prints how many Markdown files it skipped, and warns about a pattern that matches no Markdown file, so a renamed directory never leaves a stale line behind. Only the prose check reads `.proseignore`. Formatting and Markdown lint still run on those files.
+
 ### Plugin
 
 The plugin job validates what Claude Code loads:

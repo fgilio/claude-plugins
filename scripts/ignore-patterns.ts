@@ -1,0 +1,121 @@
+// Reads a file of gitignore-style patterns, such as .proseignore, and
+// filters repository paths through it the way git filters untracked files.
+
+export interface IgnorePattern {
+  /** The line of the pattern in its file, counted from 1. */
+  line: number;
+  /** The pattern as written, without trailing spaces. */
+  source: string;
+  negated: boolean;
+  directoryOnly: boolean;
+  glob: Bun.Glob;
+}
+
+export interface IgnoreResult {
+  kept: string[];
+  skipped: string[];
+  /** Patterns that matched none of the paths or their directories. */
+  unused: IgnorePattern[];
+}
+
+/**
+ * Escapes the glob syntax Bun.Glob reads and gitignore does not, so braces
+ * stay literal characters.
+ */
+function escapeBraces(pattern: string): string {
+  return pattern.replace(/[{}]/g, (brace) => `\\${brace}`);
+}
+
+function parseLine(text: string, line: number): IgnorePattern | null {
+  // Trailing spaces are dropped unless a backslash escapes the last one.
+  const source = text.replace(/\r$/, "").replace(/(?<!\\) +$/, "");
+
+  if (source === "" || source.startsWith("#")) {
+    return null;
+  }
+
+  const negated = source.startsWith("!");
+  let body = negated ? source.slice(1) : source;
+
+  const directoryOnly = body.endsWith("/");
+  body = body.replace(/\/+$/, "");
+
+  if (body === "") {
+    return null;
+  }
+
+  // A slash before the end anchors the pattern to the root, as in git.
+  // Without one, the pattern matches a name at any depth.
+  const anchored = body.includes("/");
+  body = body.replace(/^\//, "");
+
+  return {
+    line,
+    source,
+    negated,
+    directoryOnly,
+    glob: new Bun.Glob(escapeBraces(anchored ? body : `**/${body}`)),
+  };
+}
+
+export function parseIgnorePatterns(text: string): IgnorePattern[] {
+  return text
+    .split("\n")
+    .map((line, index) => parseLine(line, index + 1))
+    .filter((pattern) => pattern !== null);
+}
+
+/**
+ * Splits paths (relative, with "/" separators) into the ones the patterns
+ * keep and the ones they skip. The last matching pattern wins, and a file
+ * inside a skipped directory stays skipped even when a later "!" pattern
+ * names it, since git never looks inside that directory.
+ */
+export function applyIgnorePatterns(
+  patterns: IgnorePattern[],
+  paths: string[],
+): IgnoreResult {
+  const used = new Set<IgnorePattern>();
+
+  const isSkipped = (target: string, isDirectory: boolean): boolean => {
+    let skipped = false;
+
+    for (const pattern of patterns) {
+      if (pattern.directoryOnly && !isDirectory) {
+        continue;
+      }
+
+      if (pattern.glob.match(target)) {
+        used.add(pattern);
+        skipped = !pattern.negated;
+      }
+    }
+
+    return skipped;
+  };
+
+  const isPathSkipped = (path: string): boolean => {
+    const segments = path.split("/");
+
+    for (let depth = 1; depth < segments.length; depth++) {
+      if (isSkipped(segments.slice(0, depth).join("/"), true)) {
+        return true;
+      }
+    }
+
+    return isSkipped(path, false);
+  };
+
+  const kept: string[] = [];
+  const skipped: string[] = [];
+
+  for (const path of paths) {
+    (isPathSkipped(path) ? skipped : kept).push(path);
+  }
+
+  return {
+    kept,
+    skipped,
+    unused: patterns.filter((pattern) => !used.has(pattern)),
+  };
+}
