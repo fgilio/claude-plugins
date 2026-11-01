@@ -72,17 +72,27 @@ export function proseFragments(markdown: string): string[] {
     codespan: () => "",
     html: () => "",
     blockquote: () => "",
+    // An autolink shows its own destination, which is a URL, not prose.
+    link: (children, { href }) => {
+      const only = /^\uE000(\d+)\uE001$/.exec(children)?.[1];
+      const label = only === undefined ? undefined : texts[Number(only)];
+
+      return label === href || `mailto:${label}` === href ? "" : children;
+    },
   });
 
   const prose: string[] = [];
   let codeDepth = 0;
+  let inComment = false;
 
   for (const [, index] of rendered.matchAll(/(\d+)/g)) {
     const text = texts[Number(index)] ?? "";
 
-    // Inline HTML tags arrive as text nodes, so code tags are tracked here,
-    // and a tag's attributes never count as prose.
-    if (CODE_OPEN.test(text)) {
+    // Inline HTML arrives as text nodes, so comments and code tags are
+    // tracked here, and a tag's attributes never count as prose.
+    if (inComment || text.startsWith("<!--")) {
+      inComment = !text.endsWith("-->");
+    } else if (CODE_OPEN.test(text)) {
       codeDepth++;
     } else if (CODE_CLOSE.test(text)) {
       codeDepth = Math.max(0, codeDepth - 1);
@@ -177,8 +187,11 @@ export function findProseProblems(markdown: string): ProseProblem[] {
       .slice(0, position === -1 ? cursor : position)
       .split("\n").length;
 
+    // A URL in running text keeps its own punctuation.
+    const words = fragment.replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, "");
+
     for (const { pattern, message } of RULES) {
-      for (const [match] of fragment.matchAll(pattern)) {
+      for (const [match] of words.matchAll(pattern)) {
         problems.push({ line, message: message(match) });
       }
     }

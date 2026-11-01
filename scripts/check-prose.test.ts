@@ -36,6 +36,22 @@ describe("proseFragments", () => {
     ).toEqual(["Before.", "After."]);
   });
 
+  test("skips inline HTML comments, also across lines", () => {
+    expect(
+      proseFragments(
+        "Text <!-- internal; note -->.\n\nMore <!-- a;\nb; -->end.",
+      ),
+    ).toEqual(["Text ", ".", "More ", "end."]);
+  });
+
+  test("skips the URL an autolink shows and keeps a link's label", () => {
+    expect(
+      proseFragments(
+        "See <https://example.com/step-by-step>, <books@example.com> and [the guide; v2](https://example.com).",
+      ),
+    ).toEqual(["See ", ", ", " and ", "the guide; v2", "."]);
+  });
+
   test("skips the attributes of inline HTML tags and keeps their text", () => {
     expect(
       proseFragments('See <span style="color: red;">red</span> text.'),
@@ -114,6 +130,12 @@ describe("findProseProblems", () => {
       ]);
     },
   );
+
+  test("ignores the punctuation of a URL in running text", () => {
+    expect(
+      findProseProblems("See https://example.com/a;b/step-by-step now.\n"),
+    ).toEqual([]);
+  });
 
   test("names the line of a problem in an indented list continuation", () => {
     const text = "- Item.\n\n    Fine.\n\n    One; two.\n";
