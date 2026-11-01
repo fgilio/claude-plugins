@@ -169,7 +169,7 @@ With `shell: true`, ShellCheck runs on every tracked `*.sh` file.
 
 - runs `oxlint --fix`, then `oxfmt`, on TypeScript (code profile), and adds the fixes to the commit.
 - runs `oxfmt` on JSON, JSONC, Markdown and YAML, and adds the fixes to the commit.
-- runs markdownlint on Markdown.
+- runs markdownlint on Markdown, after oxfmt has formatted it.
 
 A lint error the fixer cannot fix stops the commit. Type checks and tests run in CI only, so a commit stays fast. Never bypass the hook with `--no-verify`.
 

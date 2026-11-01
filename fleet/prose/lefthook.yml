@@ -7,10 +7,20 @@ glob_matcher: doublestar
 pre-commit:
   parallel: true
   jobs:
-    - name: fix:config-and-docs
+    - name: fix:config
       run: bunx oxfmt --write {staged_files}
-      glob: "**/*.{json,jsonc,md,mdx,yml,yaml}"
+      glob: "**/*.{json,jsonc,yml,yaml}"
       stage_fixed: true
-    - name: check:docs
-      run: bunx markdownlint-cli2 {staged_files}
-      glob: "**/*.{md,mdx}"
+    # markdownlint reads the file oxfmt wrote, so the two run in order.
+    # --no-globs keeps markdownlint to the staged files.
+    - name: docs
+      group:
+        piped: true
+        jobs:
+          - name: fix:docs
+            run: bunx oxfmt --write {staged_files}
+            glob: "**/*.{md,mdx}"
+            stage_fixed: true
+          - name: check:docs
+            run: bunx markdownlint-cli2 --no-globs {staged_files}
+            glob: "**/*.{md,mdx}"
