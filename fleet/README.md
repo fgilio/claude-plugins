@@ -186,7 +186,7 @@ With `shell: true`, ShellCheck runs on every tracked `*.sh` file.
 
 - runs `oxlint --fix`, then `oxfmt`, on TypeScript and JavaScript (code profile), or `oxfmt` alone on JavaScript (prose profile), and adds the fixes to the commit.
 - runs `oxfmt` on JSON, JSONC, YAML, TOML and Markdown, and adds the fixes to the commit.
-- runs markdownlint on Markdown, after oxfmt has formatted it.
+- runs `markdownlint --fix` on Markdown, after oxfmt has formatted it, and adds the fixes to the commit. A finding it cannot fix, such as a file that does not open with a heading, stops the commit.
 
 The jobs run one at a time, in that order, since the formatters read the config files a commit may change.
 

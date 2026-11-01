@@ -23,7 +23,9 @@ pre-commit:
       run: bun run oxfmt --write {staged_files}
       glob: "**/*.{md,mdx}"
       stage_fixed: true
-    # --no-globs keeps markdownlint to the staged files.
-    - name: check:docs
-      run: bun run markdownlint-cli2 --no-globs {staged_files}
+    # --no-globs keeps markdownlint to the staged files. It fixes what it
+    # can, and a finding that needs a person stops the commit.
+    - name: fix:docs-lint
+      run: bun run markdownlint-cli2 --fix --no-globs {staged_files}
       glob: "**/*.{md,mdx}"
+      stage_fixed: true
