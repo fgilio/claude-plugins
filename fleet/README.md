@@ -55,7 +55,9 @@ Add the `package.json` for your profile. Every tool is pinned to an exact versio
 }
 ```
 
-The code profile adds `lint`, `lint:fix`, `typecheck`, `check:prose`, `knip` and `bun test` to the scripts, and `typescript` 7.0.2, `oxlint` 1.90.0, `oxlint-tsgolint` 7.0.2005, `@types/bun`, `@tsconfig/strictest` 2.0.8, `@tsconfig/bun` 1.0.11 and `knip` 6.44.1 to the dev dependencies. The hub's own [package.json](../package.json) is the reference.
+The code profile adds `lint`, `lint:fix`, `typecheck`, `check:prose`, `knip` and `test` to the scripts, and `typescript` 7.0.2, `oxlint` 1.90.0, `oxlint-tsgolint` 7.0.2005, `@types/bun`, `@tsconfig/strictest` 2.0.8, `@tsconfig/bun` 1.0.11 and `knip` 6.44.1 to the dev dependencies. The hub's own [package.json](../package.json) is the reference.
+
+CI runs `bun run test`, so the `test` script decides what the tests are. It is `"test": "bun test"` in most repositories. A repository whose tests run elsewhere narrows it, such as `"test": "bun test ./scripts"`, and one with no Bun tests says so with `"test": "echo 'no bun tests'"`, since `bun test` with no test file fails.
 
 Then call the shared workflow from `.github/workflows/ci.yml`, pinned to the full SHA of a commit on the hub's `main`:
 

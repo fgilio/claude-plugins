@@ -113,7 +113,8 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
-      - run: bun test
+      # The repository's test script decides what its tests are.
+      - run: bun run test
 
   docs:
     runs-on: ubuntu-latest
