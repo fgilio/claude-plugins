@@ -36,12 +36,18 @@ describe("proseFragments", () => {
     ).toEqual(["Before.", "After."]);
   });
 
+  test("skips the attributes of inline HTML tags and keeps their text", () => {
+    expect(
+      proseFragments('See <span style="color: red;">red</span> text.'),
+    ).toEqual(["See ", "red", " text."]);
+  });
+
   test("skips the text inside inline code, kbd, samp and pre tags", () => {
     expect(
       proseFragments(
         "Run <code>a; b</code>, press <kbd>Ctrl</kbd>; then <b>bold</b>.",
       ),
-    ).toEqual(["Run ", ", press ", "; then ", "<b>", "bold", "</b>", "."]);
+    ).toEqual(["Run ", ", press ", "; then ", "bold", "."]);
   });
 });
 
@@ -94,6 +100,7 @@ describe("findProseProblems", () => {
     ["a quote", "> One; two."],
     ["an HTML comment", "<!--\nOne; two.\n-->"],
     ["a code span", "Run `One; two.` here."],
+    ["an indented block", "    One; two."],
   ])(
     "names the prose line when %s earlier repeats the sentence",
     (_case, skipped) => {
@@ -107,6 +114,14 @@ describe("findProseProblems", () => {
       ]);
     },
   );
+
+  test("names the line of a problem in an indented list continuation", () => {
+    const text = "- Item.\n\n    Fine.\n\n    One; two.\n";
+
+    expect(findProseProblems(text)).toEqual([
+      { line: 5, message: "has a semicolon. Split it into two sentences." },
+    ]);
+  });
 
   test("reports a character written as an entity on the line where the text before it ends", () => {
     expect(findProseProblems("First line.\n\nSee &#8212; here.")).toEqual([

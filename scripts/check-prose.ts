@@ -13,6 +13,7 @@ import { filesGitWouldCommit } from "./git-files";
 
 const CODE_OPEN = /^<(?:code|kbd|samp|pre)\b[^>]*>$/i;
 const CODE_CLOSE = /^<\/(?:code|kbd|samp|pre)\s*>$/i;
+const HTML_TAG = /^<\/?[a-z][\w-]*(?:\s[^>]*)?\/?>$/i;
 
 interface Rule {
   pattern: RegExp;
@@ -79,12 +80,13 @@ export function proseFragments(markdown: string): string[] {
   for (const [, index] of rendered.matchAll(/(\d+)/g)) {
     const text = texts[Number(index)] ?? "";
 
-    // Inline HTML tags arrive as text nodes, so code tags are tracked here.
+    // Inline HTML tags arrive as text nodes, so code tags are tracked here,
+    // and a tag's attributes never count as prose.
     if (CODE_OPEN.test(text)) {
       codeDepth++;
     } else if (CODE_CLOSE.test(text)) {
       codeDepth = Math.max(0, codeDepth - 1);
-    } else if (codeDepth === 0) {
+    } else if (codeDepth === 0 && !HTML_TAG.test(text)) {
       prose.push(text);
     }
   }
@@ -94,21 +96,26 @@ export function proseFragments(markdown: string): string[] {
 
 const blank = (text: string) => text.replace(/[^\n]/g, " ");
 
+const LIST_ITEM = /^\s*(?:[-*+]|\d+[.)])\s/;
+
+const INDENTED = /^(?: {4}|\t)/;
+
 /**
- * Blanks out the source the prose check skips (fenced code, quotes, code
- * spans and HTML comments) and keeps every offset, so a prose fragment is
- * located in prose and never in an earlier code example that repeats it.
+ * Blanks out the source the prose check skips (fenced and indented code,
+ * quotes, code spans and HTML comments) and keeps every offset, so a prose
+ * fragment is located in prose and never in an earlier code example that
+ * repeats it. Indented lines that continue a list item stay, since they
+ * are prose.
  */
 export function maskSkippedSource(markdown: string): string {
   let fence: string | null = null;
+  let inIndentedCode = false;
+  let previousBlank = true;
+  let inList = false;
 
   const lines = markdown.split("\n").map((line) => {
     const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-
-    if (fence === null && marker !== undefined) {
-      fence = marker;
-      return blank(line);
-    }
+    const isBlank = line.trim() === "";
 
     if (fence !== null) {
       if (
@@ -121,6 +128,25 @@ export function maskSkippedSource(markdown: string): string {
 
       return blank(line);
     }
+
+    if (marker !== undefined) {
+      fence = marker;
+      inIndentedCode = false;
+      return blank(line);
+    }
+
+    if (INDENTED.test(line) && (inIndentedCode || (previousBlank && !inList))) {
+      inIndentedCode = true;
+      previousBlank = false;
+      return blank(line);
+    }
+
+    if (!isBlank) {
+      inIndentedCode = false;
+      inList = LIST_ITEM.test(line) || (inList && INDENTED.test(line));
+    }
+
+    previousBlank = isBlank;
 
     return /^ {0,3}>/.test(line) ? blank(line) : line;
   });
@@ -137,7 +163,11 @@ export function findProseProblems(markdown: string): ProseProblem[] {
   let cursor = 0;
 
   for (const fragment of proseFragments(markdown)) {
-    const position = source.indexOf(fragment, cursor);
+    // A fragment the mask hides (list text that looks like indented
+    // code) is searched in the source as written.
+    const masked = source.indexOf(fragment, cursor);
+    const position =
+      masked === -1 ? markdown.indexOf(fragment, cursor) : masked;
 
     if (position !== -1) {
       cursor = position + fragment.length;
