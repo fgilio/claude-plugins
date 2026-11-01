@@ -24,7 +24,7 @@ pre-commit:
             stage_fixed: true
     - name: fix:config
       run: bun run oxfmt --write {staged_files}
-      glob: "**/*.{json,jsonc,yml,yaml}"
+      glob: "**/*.{json,jsonc,yml,yaml,toml}"
       stage_fixed: true
     # markdownlint reads the file oxfmt wrote, so the two run in order.
     # --no-globs keeps markdownlint to the staged files.

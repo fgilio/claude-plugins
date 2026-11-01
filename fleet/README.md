@@ -180,7 +180,7 @@ With `shell: true`, ShellCheck runs on every tracked `*.sh` file.
 `bun install` installs a lefthook pre-commit hook, through the `lefthook` package's install script (the only dependency trusted to run one). On the staged files it:
 
 - runs `oxlint --fix`, then `oxfmt`, on TypeScript (code profile), and adds the fixes to the commit.
-- runs `oxfmt` on JSON, JSONC, Markdown and YAML, and adds the fixes to the commit.
+- runs `oxfmt` on JSON, JSONC, YAML, TOML and Markdown, and adds the fixes to the commit.
 - runs markdownlint on Markdown, after oxfmt has formatted it.
 
 The hook starts each tool with `bun run`, from `node_modules` at the versions `bun.lock` pins, so a machine with Bun and no Node can commit. Without `bun install`, it fails instead of fetching a release.
