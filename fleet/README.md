@@ -125,7 +125,8 @@ Test fixtures are linted too. When a fixture must break a rule, add an `override
 
 `tsc --noEmit` runs with `@tsconfig/strictest` and then `@tsconfig/bun`. The effective flags, from `tsc --showConfig`:
 
-- On: `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`, `noImplicitReturns`, `noFallthroughCasesInSwitch`, `isolatedModules`, `verbatimModuleSyntax`, `allowUnreachableCode: false`, `allowUnusedLabels: false`, `erasableSyntaxOnly`, and `allowJs` with `checkJs`, so JavaScript files (`.js`, `.mjs`, `.cjs`) are type-checked too.
+- On: `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`, `noImplicitReturns`, `noFallthroughCasesInSwitch`, `isolatedModules`, `verbatimModuleSyntax`, `allowUnreachableCode: false`, `allowUnusedLabels: false`, `erasableSyntaxOnly`, and `allowJs` with `checkJs`, so JavaScript files are type-checked too.
+- Files: every `.ts`, `.mts`, `.cts`, `.tsx`, `.js`, `.mjs`, `.cjs` and `.jsx` file, so an entry point nobody imports is still checked. `.tsx` and `.jsx` compile with `jsx: react-jsx` from `@tsconfig/bun`.
 - Off: `noUnusedLocals` and `noUnusedParameters` (oxlint reports unused names, so tsc does not report them twice), `noPropertyAccessFromIndexSignature` (so `process.env.TOKEN` reads plainly).
 - Module settings from `@tsconfig/bun`: `module: preserve`, `moduleResolution: bundler`, `target: esnext`, `types: ["bun"]`.
 
