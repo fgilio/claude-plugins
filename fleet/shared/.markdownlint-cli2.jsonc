@@ -1,0 +1,16 @@
+{
+  "config": {
+    "default": true,
+    // The formatter keeps each paragraph on one line.
+    "MD013": false,
+  },
+  "globs": ["**/*.{md,mdx}"],
+  "gitignore": true,
+  "ignores": [
+    "node_modules/**",
+    "**/results/**",
+    // A byte-identical copy of the upstream template. Its body is a pull
+    // request description, which opens with a "Closes:" line (MD041).
+    "**/.github/pull_request_template.md",
+  ],
+}

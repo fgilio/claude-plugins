@@ -1,0 +1,28 @@
+# Mirrors the CI format and lint gates on the staged files. Type checks and
+# tests run in CI behind ci-success. Installed by `bun install` through the
+# lefthook package's postinstall. Never bypass with --no-verify.
+min_version: 2.1.9
+glob_matcher: doublestar
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: fix:ts
+      group:
+        piped: true
+        jobs:
+          - name: fix:ts-lint
+            run: bunx oxlint --type-aware --deny-warnings --fix {staged_files}
+            glob: "**/*.{ts,mts}"
+            stage_fixed: true
+          - name: fix:ts-format
+            run: bunx oxfmt --write {staged_files}
+            glob: "**/*.{ts,mts}"
+            stage_fixed: true
+    - name: fix:config-and-docs
+      run: bunx oxfmt --write {staged_files}
+      glob: "**/*.{json,jsonc,md,mdx,yml,yaml}"
+      stage_fixed: true
+    - name: check:docs
+      run: bunx markdownlint-cli2 {staged_files}
+      glob: "**/*.{md,mdx}"

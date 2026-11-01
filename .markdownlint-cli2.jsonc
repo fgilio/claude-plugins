@@ -11,6 +11,6 @@
     "**/results/**",
     // A byte-identical copy of the upstream template. Its body is a pull
     // request description, which opens with a "Closes:" line (MD041).
-    ".github/pull_request_template.md",
+    "**/.github/pull_request_template.md",
   ],
 }
