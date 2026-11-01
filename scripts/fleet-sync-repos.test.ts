@@ -35,10 +35,12 @@ const CODE_PACKAGE = JSON.stringify({
 async function syncedFiles(profile: Profile): Promise<Record<string, string>> {
   return Object.fromEntries(
     await Promise.all(
-      FLEET_FILES[profile].map(async ({ target, source }) => [
-        target,
-        await Bun.file(join(FLEET_DIR, source)).text(),
-      ]),
+      FLEET_FILES[profile].map(
+        async ({ target, source }): Promise<[string, string]> => [
+          target,
+          await Bun.file(join(FLEET_DIR, source)).text(),
+        ],
+      ),
     ),
   );
 }
