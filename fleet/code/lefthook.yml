@@ -16,11 +16,11 @@ pre-commit:
         jobs:
           - name: fix:ts-lint
             run: bun run oxlint --type-aware --deny-warnings --fix {staged_files}
-            glob: "**/*.{ts,mts}"
+            glob: "**/*.{ts,mts,js,mjs,cjs}"
             stage_fixed: true
           - name: fix:ts-format
             run: bun run oxfmt --write {staged_files}
-            glob: "**/*.{ts,mts}"
+            glob: "**/*.{ts,mts,js,mjs,cjs}"
             stage_fixed: true
     - name: fix:config
       run: bun run oxfmt --write {staged_files}

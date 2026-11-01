@@ -18,7 +18,7 @@ Each repository picks one profile:
 | `bunfig.toml` | yes | yes | [shared/bunfig.toml](shared/bunfig.toml) |
 | `.github/dependabot.yml` | yes | yes | [shared/.github/dependabot.yml](shared/.github/dependabot.yml) |
 | `.github/pull_request_template.md` | yes | yes | [shared/.github/pull_request_template.md](shared/.github/pull_request_template.md) |
-| `lefthook.yml` | format and Markdown | adds the TypeScript fixers | [prose/lefthook.yml](prose/lefthook.yml), [code/lefthook.yml](code/lefthook.yml) |
+| `lefthook.yml` | format and Markdown | adds the TypeScript and JavaScript lint fixer | [prose/lefthook.yml](prose/lefthook.yml), [code/lefthook.yml](code/lefthook.yml) |
 | `tsconfig.json` | no | yes | [code/tsconfig.json](code/tsconfig.json) |
 | `.oxlintrc.json` | no | yes | [code/.oxlintrc.json](code/.oxlintrc.json) |
 
@@ -179,7 +179,7 @@ With `shell: true`, ShellCheck runs on every tracked `*.sh` file.
 
 `bun install` installs a lefthook pre-commit hook, through the `lefthook` package's install script (the only dependency trusted to run one). On the staged files it:
 
-- runs `oxlint --fix`, then `oxfmt`, on TypeScript (code profile), and adds the fixes to the commit.
+- runs `oxlint --fix`, then `oxfmt`, on TypeScript and JavaScript (code profile), or `oxfmt` alone on JavaScript (prose profile), and adds the fixes to the commit.
 - runs `oxfmt` on JSON, JSONC, YAML, TOML and Markdown, and adds the fixes to the commit.
 - runs markdownlint on Markdown, after oxfmt has formatted it.
 

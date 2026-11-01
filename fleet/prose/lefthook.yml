@@ -10,6 +10,10 @@ glob_matcher: doublestar
 pre-commit:
   parallel: true
   jobs:
+    - name: fix:js
+      run: bun run oxfmt --write {staged_files}
+      glob: "**/*.{js,mjs,cjs}"
+      stage_fixed: true
     - name: fix:config
       run: bun run oxfmt --write {staged_files}
       glob: "**/*.{json,jsonc,yml,yaml,toml}"
