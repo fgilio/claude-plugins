@@ -131,7 +131,7 @@ Test fixtures are linted too. When a fixture must break a rule, add an `override
 
 ### Markdown: markdownlint
 
-Every rule is on except line length (`MD013`), since the formatter keeps paragraphs on one line. The PR template is skipped, since it is the body of a pull request description and opens with a `Closes:` line instead of a heading.
+Every rule is on except line length (`MD013`), since the formatter keeps paragraphs on one line. The PR template turns off only the first-line heading rule (`MD041`), since it is the body of a pull request description and opens with a `Closes:` line instead of a heading.
 
 ### Prose
 
