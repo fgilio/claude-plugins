@@ -1,20 +1,17 @@
 <!--
-Publica.la pull request template.
-Reference copy: https://github.com/publicala/.github/blob/main/PULL_REQUEST_TEMPLATE.md
-
 Delete every section that does not apply. Never leave a section holding "none" or "N/A".
 The title carries more weight than anything below it. Imperative, complete sentence, understandable on its own in `git log`.
 -->
 
 Closes:
 
-<!-- What this PR resolves and marks done: Linear issue, Nightwatch issue, Sentry issue, GitHub issue. One per line. A GitHub issue closes on merge only when the keyword sits on the reference itself, so write that line as `- Closes #123`. The heading alone does not close anything. Delete both lines when there is nothing to close. -->
+<!-- What this PR resolves and marks done: an issue in the tracker, a GitHub issue. One per line. A GitHub issue closes on merge only when the keyword sits on the reference itself, so write that line as `- Closes #123`. The heading alone does not close anything. Delete both lines when there is nothing to close. -->
 
 -
 
 Related:
 
-<!-- Context this PR does not resolve: Slack thread, design doc, partially addressed Sentry or Nightwatch issue. Delete both lines when there is nothing to link. -->
+<!-- Context this PR does not resolve: a thread, a design doc, a partially addressed issue. Delete both lines when there is nothing to link. -->
 
 -
 
@@ -46,9 +43,4 @@ Related:
 
 ## Deployment
 
-<!-- Fill the rows that apply and delete the rest. Replace the whole block with "No special steps required" when none of them apply. -->
-
-- [ ] Migrations:
-- [ ] Cache or config clear:
-- [ ] Env vars or feature flags:
-- [ ] Monitor after release:
+<!-- Delete this section when the change ships with the merge. -->

@@ -9,8 +9,8 @@
   "ignores": [
     "node_modules/**",
     "**/results/**",
-    // A byte-identical copy of the upstream template. Its body is a pull
-    // request description, which opens with a "Closes:" line (MD041).
+    // The PR template is the body of a pull request description. It opens
+    // with a guidance comment and a "Closes:" line, not a heading (MD041).
     "**/.github/pull_request_template.md",
   ],
 }

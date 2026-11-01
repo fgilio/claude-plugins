@@ -131,7 +131,7 @@ Test fixtures are linted too. When a fixture must break a rule, add an `override
 
 ### Markdown: markdownlint
 
-Every rule is on except line length (`MD013`), since the formatter keeps paragraphs on one line. The PR template is skipped because it is a copy of an upstream file whose body starts with a `Closes:` line.
+Every rule is on except line length (`MD013`), since the formatter keeps paragraphs on one line. The PR template is skipped, since it is the body of a pull request description and opens with a `Closes:` line instead of a heading.
 
 ### Prose
 
@@ -186,7 +186,7 @@ Each repository protects `main` with a ruleset: changes land through a pull requ
 
 ## Pull requests
 
-The template is a copy of the public [Publica.la pull request template](https://github.com/publicala/.github/blob/main/PULL_REQUEST_TEMPLATE.md). The title is an imperative sentence that reads on its own in `git log`.
+The template derives from the public [Publica.la pull request template](https://github.com/publicala/.github/blob/main/PULL_REQUEST_TEMPLATE.md), and the copy in `fleet/shared/` is the fleet's canonical one. The title is an imperative sentence that reads on its own in `git log`.
 
 ## Change the standard
 
