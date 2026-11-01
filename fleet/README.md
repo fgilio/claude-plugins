@@ -158,7 +158,15 @@ skills/acme-books-audit/prompts/
 **/*.generated.md
 ```
 
-The file takes gitignore syntax: `#` comments, blank lines, a trailing `/` for a directory, `*` and `**` globs, a leading `/` to anchor a pattern to the root and `!` to keep a file again. The check prints how many Markdown files it skipped, and warns about a pattern that matches no Markdown file, so a renamed directory never leaves a stale line behind. Only the prose check reads `.proseignore`. Formatting and Markdown lint still run on those files.
+The file takes gitignore syntax: `#` comments, blank lines, a trailing `/` for a directory, `*` and `**` globs, a leading `/` to anchor a pattern to the root and `!` to keep a file again. The check prints how many Markdown files it skipped, and warns about a pattern that matches no Markdown file, so a renamed directory never leaves a stale line behind. Only the prose check reads `.proseignore`.
+
+Formatting and Markdown lint each read their own file, so quoted text stays out of all three only when you list it in each. With `skills/acme-books-audit/prompts/` as the quoted directory:
+
+- `.prettierignore` at the root, for oxfmt: `skills/acme-books-audit/prompts/`. oxfmt also reads `.gitignore`. It has no `.oxfmtignore`, and `ignorePatterns` in `.oxfmtrc.json` belongs to the synced config.
+- `skills/acme-books-audit/prompts/.markdownlint-cli2.jsonc`, for markdownlint: `{ "ignores": ["**/*.md"] }`. markdownlint-cli2 applies a nested config's `ignores` to its directory, and does not read `.markdownlintignore`.
+- `.proseignore` at the root, for the prose check: `skills/acme-books-audit/prompts/`.
+
+The hook passes these files over too, so a commit that changes only quoted text goes through.
 
 ### Plugin
 
