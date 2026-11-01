@@ -25,10 +25,13 @@ export function maskSkippedSource(markdown: string): string {
     const isBlank = line.trim() === "";
 
     if (fence !== null) {
+      // A closing fence carries nothing but whitespace after its marker.
+      const closing = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line)?.[1];
+
       if (
-        marker !== undefined &&
-        marker[0] === fence[0] &&
-        marker.length >= fence.length
+        closing !== undefined &&
+        closing[0] === fence[0] &&
+        closing.length >= fence.length
       ) {
         fence = null;
       }
