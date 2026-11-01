@@ -263,11 +263,11 @@ describe("main", () => {
       await Bun.write(join(root, "tsconfig.json"), "{}\n");
 
       expect(await main([root, "--profile", "code", "--check"])).toBe(1);
-      expect(output.errors()).toEqual([
-        expect.stringMatching(
-          /^tsconfig\.json differs from fleet\/code\/tsconfig\.json\. Run: bun \S*fleet-sync\.ts \S+ --profile code$/,
-        ),
-      ]);
+      const errors = output.errors();
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatch(
+        /^tsconfig\.json differs from fleet\/code\/tsconfig\.json\. Run: bun \S*fleet-sync\.ts \S+ --profile code$/,
+      );
       expect(await Bun.file(join(root, "tsconfig.json")).text()).toBe("{}\n");
     } finally {
       output.restore();
