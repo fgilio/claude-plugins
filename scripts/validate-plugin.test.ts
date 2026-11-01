@@ -2,7 +2,7 @@ import { describe, expect, spyOn, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 
-import { gitRepo } from "./test-support";
+import { captureOutput, gitRepo } from "./test-support";
 import {
   annotation,
   frontmatterProblems,
@@ -210,6 +210,43 @@ describe("missingLinkTargets", () => {
         "gone.md",
         "/img/logo.png",
       ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("malformed percent escapes", () => {
+  test("report a missing link instead of throwing", async () => {
+    const root = await gitRepo({ "README.md": "See [50%](docs/50%.md).\n" });
+    const output = captureOutput();
+
+    try {
+      expect(await main(root)).toBe(1);
+      expect(output.errors()).toEqual([
+        "::error file=README.md::README.md links to docs/50%.md, which does not exist. Fix the path or remove the link.",
+      ]);
+    } finally {
+      output.restore();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("resolve to a file named with a literal percent sign", async () => {
+    const root = await gitRepo({
+      "README.md": "See [50%](docs/50%.md) and [half](docs/50%25%20off.md).\n",
+      "docs/50%.md": "",
+      "docs/50% off.md": "",
+    });
+
+    try {
+      expect(
+        missingLinkTargets(
+          root,
+          "README.md",
+          "[50%](docs/50%.md) [half](docs/50%25%20off.md)",
+        ),
+      ).toEqual([]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

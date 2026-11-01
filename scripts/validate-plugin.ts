@@ -55,6 +55,18 @@ function linkTargets(markdown: string): string[] {
 }
 
 /**
+ * Decodes percent escapes in a link path. A malformed escape such as "50%"
+ * keeps the path as written, which then resolves or reads as missing.
+ */
+function decodeLinkPath(path: string): string {
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
+}
+
+/**
  * Relative link targets in a Markdown file that point at no file. A target
  * starting with "/" resolves from the repository root, as GitHub renders it.
  */
@@ -72,7 +84,7 @@ export function missingLinkTargets(
         !target.startsWith("//"),
     )
     .filter((target) => {
-      const file = decodeURIComponent(target.split(/[?#]/)[0] ?? "");
+      const file = decodeLinkPath(target.split(/[?#]/)[0] ?? "");
       const resolved = file.startsWith("/")
         ? join(root, file)
         : join(root, dirname(path), file);
