@@ -19,16 +19,20 @@ export interface IgnoreResult {
 }
 
 /**
- * The POSIX character classes git accepts inside brackets, as the ranges
- * Bun.Glob reads.
+ * The POSIX character classes git accepts inside brackets, as the ASCII
+ * ranges Bun.Glob reads. No range starts with "!", which would negate the
+ * bracket when the class comes first in it.
  */
-const CHARACTER_CLASSES: Record<string, string> = {
+export const CHARACTER_CLASSES: Record<string, string> = {
   alnum: "a-zA-Z0-9",
   alpha: "a-zA-Z",
   blank: " \\t",
+  cntrl: "\u0000-\u001F\u007F",
   digit: "0-9",
+  graph: '"-~!',
   lower: "a-z",
-  punct: "!-/:-@\\[-`{-~",
+  print: " -~",
+  punct: ":-@!-/\\[-`{-~",
   space: " \\t\\n\\r\\f\\v",
   upper: "A-Z",
   xdigit: "0-9a-fA-F",

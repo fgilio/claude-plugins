@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { applyIgnorePatterns, parseIgnorePatterns } from "./ignore-patterns";
+import {
+  CHARACTER_CLASSES,
+  applyIgnorePatterns,
+  parseIgnorePatterns,
+} from "./ignore-patterns";
 
 const PATHS = [
   "README.md",
@@ -112,6 +116,37 @@ describe("applyIgnorePatterns", () => {
       ).toEqual([matched]);
     },
   );
+
+  test("covers every character class git supports", () => {
+    expect(Object.keys(CHARACTER_CLASSES).toSorted()).toEqual([
+      "alnum",
+      "alpha",
+      "blank",
+      "cntrl",
+      "digit",
+      "graph",
+      "lower",
+      "print",
+      "punct",
+      "space",
+      "upper",
+      "xdigit",
+    ]);
+  });
+
+  test.each<[string, string[], string[]]>([
+    ["print", ["x.md", " .md", "!.md"], ["\u0001.md"]],
+    ["graph", ["x.md", "!.md", "~.md"], [" .md", "\u0001.md"]],
+    ["cntrl", ["\u0001.md", "\u007F.md"], ["x.md", " .md"]],
+    ["punct", ["!.md", "_.md", "~.md"], ["x.md", " .md"]],
+  ])("reads [[:%s:]] as git does", (name, skipped, kept) => {
+    expect(
+      applyIgnorePatterns(parseIgnorePatterns(`[[:${name}:]].md\n`), [
+        ...skipped,
+        ...kept,
+      ]).skipped,
+    ).toEqual(skipped);
+  });
 
   test("keeps braces literal", () => {
     expect(
