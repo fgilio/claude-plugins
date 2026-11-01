@@ -37,7 +37,7 @@ function isStringArray(value: unknown): value is string[] {
  * Collects link and image destinations as a Markdown parser reads them, so
  * code blocks, code spans and unused definitions never count.
  */
-export function linkTargets(markdown: string): string[] {
+function linkTargets(markdown: string): string[] {
   const targets: string[] = [];
 
   Bun.markdown.render(markdown, {

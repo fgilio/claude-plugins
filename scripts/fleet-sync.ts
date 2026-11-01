@@ -11,7 +11,7 @@ import { parseArgs } from "node:util";
 
 export const FLEET_DIR = join(import.meta.dir, "..", "fleet");
 
-export const PROFILES = ["code", "prose"] as const;
+const PROFILES = ["code", "prose"] as const;
 
 export type Profile = (typeof PROFILES)[number];
 
@@ -66,7 +66,7 @@ export function syncStatus(
   return Buffer.from(canonical).equals(current) ? "same" : "drifted";
 }
 
-export function syncCommand(targetDir: string, profile: Profile): string {
+function syncCommand(targetDir: string, profile: Profile): string {
   const script = relative(
     process.cwd(),
     join(import.meta.dir, "fleet-sync.ts"),
