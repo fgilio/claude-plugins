@@ -1,6 +1,8 @@
 # Mirrors the CI format and lint gates on the staged files. Type checks and
 # tests run in CI behind ci-success. Installed by `bun install` through the
 # lefthook package's postinstall. Never bypass with --no-verify.
+# The tools run from node_modules, at the versions bun.lock pins, so a
+# missing `bun install` fails the hook instead of fetching a release.
 min_version: 2.1.9
 glob_matcher: doublestar
 
@@ -12,15 +14,15 @@ pre-commit:
         piped: true
         jobs:
           - name: fix:ts-lint
-            run: bunx oxlint --type-aware --deny-warnings --fix {staged_files}
+            run: ./node_modules/.bin/oxlint --type-aware --deny-warnings --fix {staged_files}
             glob: "**/*.{ts,mts}"
             stage_fixed: true
           - name: fix:ts-format
-            run: bunx oxfmt --write {staged_files}
+            run: ./node_modules/.bin/oxfmt --write {staged_files}
             glob: "**/*.{ts,mts}"
             stage_fixed: true
     - name: fix:config
-      run: bunx oxfmt --write {staged_files}
+      run: ./node_modules/.bin/oxfmt --write {staged_files}
       glob: "**/*.{json,jsonc,yml,yaml}"
       stage_fixed: true
     # markdownlint reads the file oxfmt wrote, so the two run in order.
@@ -30,9 +32,9 @@ pre-commit:
         piped: true
         jobs:
           - name: fix:docs
-            run: bunx oxfmt --write {staged_files}
+            run: ./node_modules/.bin/oxfmt --write {staged_files}
             glob: "**/*.{md,mdx}"
             stage_fixed: true
           - name: check:docs
-            run: bunx markdownlint-cli2 --no-globs {staged_files}
+            run: ./node_modules/.bin/markdownlint-cli2 --no-globs {staged_files}
             glob: "**/*.{md,mdx}"
