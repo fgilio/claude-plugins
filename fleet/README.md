@@ -125,7 +125,8 @@ Test fixtures are linted too. When a fixture must break a rule, add an `override
 
 `tsc --noEmit` runs with `@tsconfig/strictest` and then `@tsconfig/bun`. The effective flags, from `tsc --showConfig`:
 
-- On: `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`, `noImplicitReturns`, `noFallthroughCasesInSwitch`, `isolatedModules`, `verbatimModuleSyntax`, `allowUnreachableCode: false`, `allowUnusedLabels: false`, `erasableSyntaxOnly`, and `allowJs` with `checkJs`, so JavaScript files (`.js`, `.mjs`, `.cjs`) are type-checked too.
+- On: `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride`, `noImplicitReturns`, `noFallthroughCasesInSwitch`, `isolatedModules`, `verbatimModuleSyntax`, `allowUnreachableCode: false`, `allowUnusedLabels: false`, `erasableSyntaxOnly`, and `allowJs` with `checkJs`, so JavaScript files are type-checked too.
+- Files: every `.ts`, `.mts`, `.cts`, `.tsx`, `.js`, `.mjs`, `.cjs` and `.jsx` file, so an entry point nobody imports is still checked. `.tsx` and `.jsx` compile with `jsx: react-jsx` from `@tsconfig/bun`.
 - Off: `noUnusedLocals` and `noUnusedParameters` (oxlint reports unused names, so tsc does not report them twice), `noPropertyAccessFromIndexSignature` (so `process.env.TOKEN` reads plainly).
 - Module settings from `@tsconfig/bun`: `module: preserve`, `moduleResolution: bundler`, `target: esnext`, `types: ["bun"]`.
 
@@ -157,7 +158,15 @@ skills/acme-books-audit/prompts/
 **/*.generated.md
 ```
 
-The file takes gitignore syntax: `#` comments, blank lines, a trailing `/` for a directory, `*` and `**` globs, a leading `/` to anchor a pattern to the root and `!` to keep a file again. The check prints how many Markdown files it skipped, and warns about a pattern that matches no Markdown file, so a renamed directory never leaves a stale line behind. Only the prose check reads `.proseignore`. Formatting and Markdown lint still run on those files.
+The file takes gitignore syntax: `#` comments, blank lines, a trailing `/` for a directory, `*` and `**` globs, a leading `/` to anchor a pattern to the root and `!` to keep a file again. The check prints how many Markdown files it skipped, and warns about a pattern that matches no Markdown file, so a renamed directory never leaves a stale line behind. Only the prose check reads `.proseignore`.
+
+Formatting and Markdown lint each read their own file, so quoted text stays out of all three only when you list it in each. With `skills/acme-books-audit/prompts/` as the quoted directory:
+
+- `.prettierignore` at the root, for oxfmt: `skills/acme-books-audit/prompts/`. oxfmt also reads `.gitignore`. It has no `.oxfmtignore`, and `ignorePatterns` in `.oxfmtrc.json` belongs to the synced config.
+- `skills/acme-books-audit/prompts/.markdownlint-cli2.jsonc`, for markdownlint: `{ "ignores": ["**/*.md"] }`. markdownlint-cli2 applies a nested config's `ignores` to its directory, and does not read `.markdownlintignore`.
+- `.proseignore` at the root, for the prose check: `skills/acme-books-audit/prompts/`.
+
+The hook passes these files over too, so a commit that changes only quoted text goes through.
 
 ### Plugin
 
@@ -185,7 +194,7 @@ With `shell: true`, ShellCheck runs on every tracked `*.sh` file.
 
 - runs `oxlint --fix`, then `oxfmt`, on TypeScript and JavaScript (code profile), or `oxfmt` alone on JavaScript (prose profile), and adds the fixes to the commit.
 - runs `oxfmt` on JSON, JSONC, YAML, TOML and Markdown, and adds the fixes to the commit.
-- runs markdownlint on Markdown, after oxfmt has formatted it.
+- runs `markdownlint --fix` on Markdown, after oxfmt has formatted it, and adds the fixes to the commit. A finding it cannot fix, such as a file that does not open with a heading, stops the commit.
 
 The jobs run one at a time, in that order, since the formatters read the config files a commit may change.
 
