@@ -12,12 +12,9 @@ const INDENTED = /^(?: {4}|\t)/;
  * quotes, code spans and HTML comments) and keeps every offset, so a prose
  * fragment is located in prose and never in an earlier code example that
  * repeats it. Indented lines that continue a list item stay, since they
- * are prose. With keepQuotes, quotes stay too, for a check that reads them.
+ * are prose.
  */
-export function maskSkippedSource(
-  markdown: string,
-  { keepQuotes = false } = {},
-): string {
+export function maskSkippedSource(markdown: string): string {
   let fence: string | null = null;
   let inIndentedCode = false;
   let previousBlank = true;
@@ -58,7 +55,7 @@ export function maskSkippedSource(
 
     previousBlank = isBlank;
 
-    return !keepQuotes && /^ {0,3}>/.test(line) ? blank(line) : line;
+    return /^ {0,3}>/.test(line) ? blank(line) : line;
   });
 
   return lines

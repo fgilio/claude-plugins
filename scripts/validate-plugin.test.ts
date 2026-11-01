@@ -259,6 +259,32 @@ describe("linkTargets", () => {
     ).toEqual([{ target: "missing.md", line: 3 }]);
   });
 
+  test("names the definition a reference link uses, never an unused one before it", () => {
+    expect(
+      linkTargets("[unused]: missing.md\n[used]: missing.md\n\n[link][used]\n"),
+    ).toEqual([{ target: "missing.md", line: 2 }]);
+  });
+
+  test("skips an escaped bracket that only looks like a link", () => {
+    expect(
+      linkTargets(
+        "Write \\[example](missing.md) for a link.\n\n[real](missing.md)\n",
+      ),
+    ).toEqual([{ target: "missing.md", line: 3 }]);
+  });
+
+  test("keeps the line of each link after a reference-style badge", () => {
+    expect(
+      linkTargets(
+        "[![CI][badge]](https://example.com/ci)\n\n[badge]: https://example.com/ci.svg\n\nSee [one](one.md).\n",
+      ),
+    ).toEqual([
+      { target: "https://example.com/ci.svg", line: 3 },
+      { target: "https://example.com/ci", line: 1 },
+      { target: "one.md", line: 5 },
+    ]);
+  });
+
   test("leaves the line out when the source writes the destination differently", () => {
     expect(linkTargets("See <https://example.com/x>.")).toEqual([
       { target: "https://example.com/x", line: undefined },

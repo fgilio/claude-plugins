@@ -13,7 +13,7 @@ import { existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 import { filesGitWouldCommit } from "./git-files";
-import { lineAt, maskSkippedSource } from "./markdown-source";
+import { lineAt } from "./markdown-source";
 
 export interface PluginProblem {
   path: string;
@@ -42,30 +42,29 @@ function isStringArray(value: unknown): value is string[] {
   );
 }
 
-const DEFINITION_START = String.raw`^ {0,3}\[(?:[^\]\\]|\\.)+\]:`;
+/**
+ * Where a link destination can start: after "](" in an inline link, or
+ * after the label of a reference definition.
+ */
+const DESTINATION_START =
+  /\]\(\s*<?|^ {0,3}\[(?:[^\]\\]|\\.)+\]:[ \t]*\n?[ \t]*<?/gm;
 
-const DEFINITION = new RegExp(`${DEFINITION_START}.*$`, "gm");
-
-interface ParsedLink {
-  target: string;
-  /** The rendered text or image description, which tells two links apart. */
-  label: string;
-}
+const MARKER = "\uE000";
 
 /**
- * Links and images as a Markdown parser reads them, in document order, so
- * code blocks, code spans and unused definitions never count.
+ * Link and image destinations as a Markdown parser reads them, in document
+ * order, so code blocks, code spans and unused definitions never count.
  */
-function parsedLinks(markdown: string): ParsedLink[] {
-  const found: ParsedLink[] = [];
+function destinations(markdown: string): string[] {
+  const found: string[] = [];
 
   Bun.markdown.render(markdown, {
     link: (children, { href }) => {
-      found.push({ target: href, label: children });
+      found.push(href);
       return children;
     },
     image: (children, { src }) => {
-      found.push({ target: src, label: children });
+      found.push(src);
       return children;
     },
   });
@@ -76,84 +75,42 @@ function parsedLinks(markdown: string): ParsedLink[] {
 /**
  * Collects link and image destinations, each with the line it sits on: an
  * inline link's own line, or the definition line of a reference link.
+ *
+ * Bun.markdown reports no positions, so each place in the source that could
+ * hold a destination is marked in turn, and the links whose destination
+ * picks up the marker are the ones written there. Text that only looks
+ * like a link, such as a code example or an escaped bracket, marks none.
  */
 export function linkTargets(markdown: string): LinkTarget[] {
-  const source = maskSkippedSource(markdown, { keepQuotes: true });
+  const targets = destinations(markdown);
+  const lines: (number | undefined)[] = targets.map(() => undefined);
+  const candidates = [...new Set(targets)]
+    .filter((target) => target !== "")
+    .toSorted((a, b) => b.length - a.length);
 
-  // Without its definitions, a document keeps only its inline links, so
-  // the parser tells the two forms apart. Blanking keeps every offset.
-  const inline = parsedLinks(blankDefinitions(markdown, source));
-  let nextInline = 0;
-  let cursor = 0;
-
-  return parsedLinks(markdown).map(({ target, label }) => {
-    const escaped = RegExp.escape(target);
-    const nextInlineLink = inline[nextInline];
-
-    if (nextInlineLink?.target === target && nextInlineLink.label === label) {
-      nextInline++;
-
-      // The parser reports inline links in document order, so each search
-      // starts after the previous one.
-      const position = matchAfter(
-        new RegExp(`\\]\\(\\s*<?${escaped}`, "g"),
-        source,
-        cursor,
-      );
-
-      if (position === undefined) {
-        return { target, line: undefined };
-      }
-
-      cursor = position.end;
-
-      return { target, line: lineAt(markdown, position.start) };
-    }
-
-    const definition = matchAfter(
-      new RegExp(`${DEFINITION_START}\\s*<?${escaped}`, "gm"),
-      source,
-      0,
+  for (const match of markdown.matchAll(DESTINATION_START)) {
+    const start = match.index + match[0].length;
+    const target = candidates.find((candidate) =>
+      markdown.startsWith(candidate, start),
     );
 
-    return {
-      target,
-      line:
-        definition === undefined
-          ? undefined
-          : lineAt(markdown, definition.start),
-    };
-  });
-}
+    if (target === undefined) {
+      continue;
+    }
 
-/**
- * Blanks every reference definition the masked source shows, keeping the
- * offsets of the rest.
- */
-function blankDefinitions(markdown: string, source: string): string {
-  let blanked = markdown;
+    const end = start + target.length;
+    const marked = destinations(
+      markdown.slice(0, end) + MARKER + markdown.slice(end),
+    );
 
-  for (const { index, 0: definition } of source.matchAll(DEFINITION)) {
-    blanked =
-      blanked.slice(0, index) +
-      " ".repeat(definition.length) +
-      blanked.slice(index + definition.length);
+    marked.forEach((destination, index) => {
+      if (destination.includes(MARKER) && lines[index] === undefined) {
+        lines[index] = lineAt(markdown, match.index);
+      }
+    });
   }
 
-  return blanked;
-}
-
-function matchAfter(
-  pattern: RegExp,
-  text: string,
-  from: number,
-): { start: number; end: number } | undefined {
-  pattern.lastIndex = from;
-  const match = pattern.exec(text);
-
-  return match === null
-    ? undefined
-    : { start: match.index, end: match.index + match[0].length };
+  return targets.map((target, index) => ({ target, line: lines[index] }));
 }
 
 /**
