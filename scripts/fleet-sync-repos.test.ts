@@ -50,6 +50,13 @@ interface FakeRepo {
   pullRequests?: { number: number; headRefName: string; url: string }[];
 }
 
+/** The value after a flag, or undefined when the command has no such flag. */
+function flagValue(command: string[], flag: string): string | undefined {
+  const index = command.indexOf(flag);
+
+  return index === -1 ? undefined : command[index + 1];
+}
+
 /**
  * A runner that answers git and gh the way GitHub would for these
  * repositories, and records every command it receives.
@@ -90,7 +97,7 @@ function fakeGitHub(repos: Record<string, FakeRepo>) {
     }
 
     if (program === "gh" && subcommand === "pr" && action === "list") {
-      const repo = command[command.indexOf("--repo") + 1] ?? "";
+      const repo = flagValue(command, "--repo") ?? "";
 
       return {
         exitCode: 0,
@@ -100,7 +107,7 @@ function fakeGitHub(repos: Record<string, FakeRepo>) {
     }
 
     if (program === "gh" && subcommand === "pr" && action === "create") {
-      const repo = command[command.indexOf("--repo") + 1] ?? "";
+      const repo = flagValue(command, "--repo") ?? "";
 
       return {
         exitCode: 0,
