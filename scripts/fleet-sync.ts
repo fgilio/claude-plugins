@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 
 // Copies the fleet's config files from fleet/ into a repository,
-// byte-identical, or with --check reports each file that drifted.
+// byte-identical, and moves its CI's fleet-ci.yml pin to the hub's commit,
+// or with --check reports each file and pin that drifted.
 //
 // Usage: bun scripts/fleet-sync.ts <target-dir> --profile code|prose [--check]
 import { existsSync } from "node:fs";
@@ -9,7 +10,16 @@ import { mkdir } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { parseArgs } from "node:util";
 
-export const FLEET_DIR = join(import.meta.dir, "..", "fleet");
+export const HUB_ROOT = join(import.meta.dir, "..");
+
+export const FLEET_DIR = join(HUB_ROOT, "fleet");
+
+export const HUB_REPO = "fgilio/claude-plugins";
+
+/** The workflow in each repository that calls the hub's fleet-ci.yml. */
+export const CALLER_WORKFLOW = ".github/workflows/ci.yml";
+
+const FLEET_CI = `${HUB_REPO}/.github/workflows/fleet-ci.yml`;
 
 const PROFILES = ["code", "prose"] as const;
 
@@ -150,12 +160,157 @@ export async function syncWithFleet(
   return statuses;
 }
 
+export interface HubCommit {
+  /** The full 40-character SHA, as the actions SHA-pin rule requires. */
+  sha: string;
+  /** The committer date, YYYY-MM-DD, written next to the pin. */
+  date: string;
+}
+
+/** Prints the hub's HEAD as parseHubCommit reads it. */
+export const HUB_COMMIT_COMMAND = ["git", "log", "-1", "--format=%H%n%cs"];
+
+export function parseHubCommit(stdout: string): HubCommit | undefined {
+  const [sha = "", date = ""] = stdout.trim().split("\n");
+
+  return /^[0-9a-f]{40}$/.test(sha) && /^\d{4}-\d{2}-\d{2}$/.test(date)
+    ? { sha, date }
+    : undefined;
+}
+
+export function readHubCommit(hubRoot = HUB_ROOT): HubCommit | undefined {
+  const { exitCode, stdout } = Bun.spawnSync(HUB_COMMIT_COMMAND, {
+    cwd: hubRoot,
+  });
+
+  return exitCode === 0 ? parseHubCommit(stdout.toString()) : undefined;
+}
+
+/**
+ * Where the caller workflow pins fleet-ci.yml: same when every call pins
+ * the hub's commit, stale when one pins anything else (another commit, a
+ * short SHA, a branch), and unpinned when nothing calls it from the hub,
+ * as in the hub itself, which calls its own copy.
+ */
+export type PinStatus = "same" | "stale" | "unpinned";
+
+export interface FleetCiPin {
+  /** Each ref the caller workflow pins fleet-ci.yml to, in file order. */
+  refs: string[];
+  status: PinStatus;
+}
+
+const FLEET_CI_CALL =
+  /^(\s*uses:\s*["']?)fgilio\/claude-plugins\/\.github\/workflows\/fleet-ci\.yml@([^\s"'#]*)(["']?)/;
+
+function fleetCiCall(line: string) {
+  const [, lead, ref, quote] = FLEET_CI_CALL.exec(line) ?? [];
+
+  return lead === undefined || ref === undefined || quote === undefined
+    ? undefined
+    : { lead, ref, quote };
+}
+
+export function fleetCiRefs(workflow: string): string[] {
+  return workflow.split("\n").flatMap((line) => fleetCiCall(line)?.ref ?? []);
+}
+
+export function pinStatus(refs: string[], hubSha: string): PinStatus {
+  if (refs.length === 0) {
+    return "unpinned";
+  }
+
+  return refs.every((ref) => ref === hubSha) ? "same" : "stale";
+}
+
+/**
+ * Points every fleet-ci.yml call at the hub's commit, with its date as the
+ * version comment, and leaves every other line as written.
+ */
+export function pinFleetCi(workflow: string, hub: HubCommit): string {
+  return workflow
+    .split("\n")
+    .map((line) => {
+      const call = fleetCiCall(line);
+
+      return call === undefined
+        ? line
+        : `${call.lead}${FLEET_CI}@${hub.sha}${call.quote} # fleet-ci ${hub.date}${line.endsWith("\r") ? "\r" : ""}`;
+    })
+    .join("\n");
+}
+
+async function readTextOrNull(path: string): Promise<string | null> {
+  const file = Bun.file(path);
+
+  return (await file.exists()) ? file.text() : null;
+}
+
+export async function compareFleetCiPin(
+  targetDir: string,
+  hubSha: string,
+): Promise<FleetCiPin> {
+  const workflow = await readTextOrNull(join(targetDir, CALLER_WORKFLOW));
+  const refs = workflow === null ? [] : fleetCiRefs(workflow);
+
+  return { refs, status: pinStatus(refs, hubSha) };
+}
+
+/**
+ * Moves a stale pin to the hub's commit and returns the pin it found
+ * before writing.
+ */
+export async function syncFleetCiPin(
+  targetDir: string,
+  hub: HubCommit,
+): Promise<FleetCiPin> {
+  const pin = await compareFleetCiPin(targetDir, hub.sha);
+
+  if (pin.status === "stale") {
+    const path = join(targetDir, CALLER_WORKFLOW);
+
+    await Bun.write(path, pinFleetCi(await Bun.file(path).text(), hub));
+  }
+
+  return pin;
+}
+
+/** The refs of a stale pin that differ from the hub's commit, once each. */
+export function staleRefs(pin: FleetCiPin, hubSha: string): string[] {
+  return [...new Set(pin.refs.filter((ref) => ref !== hubSha))];
+}
+
+/**
+ * One line when the caller workflow pins fleet-ci.yml anywhere but the
+ * commit the fleet files come from, naming the command that moves it.
+ */
+export function pinDriftReport(
+  pin: FleetCiPin,
+  hubSha: string,
+  targetDir: string,
+  profile: Profile,
+): string[] {
+  if (pin.status !== "stale") {
+    return [];
+  }
+
+  return [
+    `${CALLER_WORKFLOW} pins fleet-ci.yml to ${staleRefs(pin, hubSha).join(", ")}, but the fleet files come from ${HUB_REPO}@${hubSha}. Run: ${syncCommand(targetDir, profile)}`,
+  ];
+}
+
 const USAGE =
   "Usage: bun scripts/fleet-sync.ts <target-dir> --profile code|prose [--check]";
 
+export interface MainOptions {
+  fleetDir?: string;
+  /** The commit the fleet files come from. Read from the hub's HEAD by default. */
+  hub?: HubCommit;
+}
+
 export async function main(
   argv: string[],
-  fleetDir = FLEET_DIR,
+  { fleetDir = FLEET_DIR, hub = readHubCommit() }: MainOptions = {},
 ): Promise<number> {
   let parsed;
 
@@ -204,14 +359,26 @@ export async function main(
     return 2;
   }
 
+  if (hub === undefined) {
+    console.error(
+      `Unable to read the hub's commit with ${HUB_COMMIT_COMMAND.join(" ")} in ${HUB_ROOT}. Run fleet-sync from a git checkout of ${HUB_REPO}.`,
+    );
+
+    return 2;
+  }
+
   const profile = values.profile;
 
   if (values.check) {
-    const drift = driftReport(
-      await compareWithFleet(targetDir, profile, fleetDir),
-      targetDir,
-      profile,
-    );
+    const pin = await compareFleetCiPin(targetDir, hub.sha);
+    const drift = [
+      ...driftReport(
+        await compareWithFleet(targetDir, profile, fleetDir),
+        targetDir,
+        profile,
+      ),
+      ...pinDriftReport(pin, hub.sha, targetDir, profile),
+    ];
 
     for (const line of drift) {
       console.error(line);
@@ -225,6 +392,10 @@ export async function main(
       `${targetDir} matches the ${profile} profile (${FLEET_FILES[profile].length} files).`,
     );
 
+    if (pin.status === "same") {
+      console.log(`${CALLER_WORKFLOW} pins fleet-ci.yml to ${hub.sha}.`);
+    }
+
     return 0;
   }
 
@@ -234,6 +405,14 @@ export async function main(
     fleetDir,
   )) {
     console.log(`${status === "same" ? "unchanged" : "wrote    "} ${target}`);
+  }
+
+  const pin = await syncFleetCiPin(targetDir, hub);
+
+  if (pin.status !== "unpinned") {
+    console.log(
+      `${pin.status === "same" ? "unchanged" : "wrote    "} ${CALLER_WORKFLOW} (fleet-ci.yml pin)`,
+    );
   }
 
   return 0;

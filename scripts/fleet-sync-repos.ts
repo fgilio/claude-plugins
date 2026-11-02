@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 
 // Checks every plugin repository the marketplace lists against fleet/ and
-// opens one draft pull request in each repository that drifted. The
-// fleet-sync workflow runs it once a month.
+// the hub's commit, and opens one draft pull request in each repository
+// that drifted. The fleet-sync workflow runs it once a month.
 //
 // Usage: bun scripts/fleet-sync-repos.ts [--repository owner/name] [--dry-run]
 // GH_TOKEN holds a token that can push and open pull requests in the plugin
@@ -14,11 +14,21 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 import {
+  CALLER_WORKFLOW,
   FLEET_DIR,
   type FileSyncStatus,
+  type FleetCiPin,
+  HUB_COMMIT_COMMAND,
+  HUB_REPO,
+  HUB_ROOT,
+  type HubCommit,
   type Profile,
+  compareFleetCiPin,
   compareWithFleet,
+  parseHubCommit,
   shellQuote,
+  staleRefs,
+  syncFleetCiPin,
   syncWithFleet,
 } from "./fleet-sync";
 import { pluginRepos, readMarketplace } from "./marketplace";
@@ -37,10 +47,6 @@ export type CommandRunner = (
 export const BRANCH_PREFIX = "fleet-sync/";
 
 export const TOKEN_SECRET = "FLEET_SYNC_TOKEN";
-
-const HUB_ROOT = join(import.meta.dir, "..");
-
-const HUB_REPO = "fgilio/claude-plugins";
 
 const COMMIT_AUTHOR = [
   "-c",
@@ -62,6 +68,7 @@ export type RepoOutcome =
       kind: "synced";
       profile: Profile;
       files: FileSyncStatus[];
+      pin: FleetCiPin;
       action: "opened" | "updated";
       url: string;
       closed: OpenPullRequest[];
@@ -72,7 +79,7 @@ export interface SyncContext {
   run: CommandRunner;
   /** Undefined in a dry run, which clones anonymously. */
   token: string | undefined;
-  hubSha: string;
+  hub: HubCommit;
   workDir: string;
   fleetDir: string;
 }
@@ -109,20 +116,100 @@ export function pullRequestTitle(hubSha: string): string {
   return `Sync the fleet config files to ${hubSha.slice(0, 7)}`;
 }
 
-export function pullRequestBody(
-  hubSha: string,
-  profile: Profile,
-  files: FileSyncStatus[],
-): string {
+export interface DriftPullRequest {
+  repo: string;
+  hub: HubCommit;
+  profile: Profile;
+  /** The fleet files that differ, each copied byte-identical. */
+  files: FileSyncStatus[];
+  pin: FleetCiPin;
+}
+
+const short = (sha: string) => sha.slice(0, 7);
+
+/** One bullet per file the sync changes, shared by the commit and the body. */
+export function changeLines({
+  hub,
+  files,
+  pin,
+}: Pick<DriftPullRequest, "hub" | "files" | "pin">): string[] {
   return [
-    `Copies the ${profile} profile's config files from ${HUB_REPO}@${hubSha}, byte-identical.`,
-    "",
     ...files.map(
       ({ target, source, status }) =>
         `- \`${target}\` ${status === "missing" ? "added from" : "updated to"} \`fleet/${source}\``,
     ),
+    ...(pin.status === "stale"
+      ? [
+          `- \`${CALLER_WORKFLOW}\` pins \`fleet-ci.yml\` to \`${hub.sha}\` (was ${staleRefs(
+            pin,
+            hub.sha,
+          )
+            .map((ref) => `\`${ref === "" ? "(empty)" : short(ref)}\``)
+            .join(", ")})`,
+        ]
+      : []),
+  ];
+}
+
+/** The pull request body, in the sections of the fleet's PR template. */
+export function pullRequestBody(drift: DriftPullRequest): string {
+  const { repo, hub, profile, files, pin } = drift;
+  const hubCommit = `[${HUB_REPO}@${short(hub.sha)}](https://github.com/${HUB_REPO}/commit/${hub.sha})`;
+  const isPinStale = pin.status === "stale";
+  const reasons = [
+    ...(files.length > 0
+      ? [
+          files.length === 1
+            ? `One config file of the ${profile} profile differs from its canonical copy in the hub.`
+            : `${files.length} config files of the ${profile} profile differ from their canonical copies in the hub.`,
+        ]
+      : []),
+    ...(isPinStale
+      ? [
+          `\`${CALLER_WORKFLOW}\` runs \`fleet-ci.yml\` from another hub commit, so CI checks this repository against a standard other than the one its files follow.`,
+        ]
+      : []),
+  ];
+
+  return [
+    "## Summary",
+    "",
+    `Syncs this repository with the fleet standard at ${hubCommit}, ${profile} profile.`,
+    "",
+    "## Why",
+    "",
+    reasons.join(" "),
     "",
     `The monthly fleet-sync workflow in ${HUB_REPO} opened this pull request and updates it on each run. Review it like any other change. If a file here must differ from the fleet, change the standard in the hub instead.`,
+    "",
+    "## Changes",
+    "",
+    ...changeLines(drift),
+    ...(files.length > 0
+      ? [
+          "",
+          `Each file is a byte-identical copy of its canonical file in \`fleet/\` at ${short(hub.sha)}.`,
+        ]
+      : []),
+    "",
+    "## Testing",
+    "",
+    `From a checkout of the hub at ${short(hub.sha)}, with this branch checked out next to it:`,
+    "",
+    "```bash",
+    `bun scripts/fleet-sync.ts ../${repo.split("/").at(-1) ?? repo} --profile ${profile} --check`,
+    "```",
+    "",
+    `This repository's CI on this pull request is the proof: it runs the fleet's checks ${isPinStale ? "from the newly pinned hub commit " : ""}against the synced files.`,
+  ].join("\n");
+}
+
+/** The commit message body: the hub commit and the changes, without Markdown sections. */
+export function commitBody(drift: DriftPullRequest): string {
+  return [
+    `Syncs the ${drift.profile} profile with ${HUB_REPO}@${drift.hub.sha}.`,
+    "",
+    ...changeLines(drift),
   ].join("\n");
 }
 
@@ -268,25 +355,28 @@ export async function syncRepo(
     const files = (
       await compareWithFleet(clone, profile, context.fleetDir)
     ).filter(({ status }) => status !== "same");
+    const pin = await compareFleetCiPin(clone, context.hub.sha);
     const open = await openSyncPullRequests(context, repo, clone);
 
-    if (files.length === 0) {
+    if (files.length === 0 && pin.status !== "stale") {
       await closePullRequests(
         context,
         repo,
         clone,
         open,
-        `The default branch matches the fleet config files at ${HUB_REPO}@${context.hubSha}.`,
+        `The default branch matches the fleet config files at ${HUB_REPO}@${context.hub.sha}.`,
       );
 
       return { kind: "in-sync", profile, closed: open };
     }
 
-    const branch = branchName(context.hubSha);
-    const title = pullRequestTitle(context.hubSha);
-    const body = pullRequestBody(context.hubSha, profile, files);
+    const branch = branchName(context.hub.sha);
+    const title = pullRequestTitle(context.hub.sha);
+    const drift = { repo, hub: context.hub, profile, files, pin };
+    const body = pullRequestBody(drift);
 
     await syncWithFleet(clone, profile, context.fleetDir);
+    await syncFleetCiPin(clone, context.hub);
     await runOrThrow(
       context,
       ["git", "switch", "--quiet", "--create", branch],
@@ -294,12 +384,27 @@ export async function syncRepo(
     );
     await runOrThrow(
       context,
-      ["git", "add", "--", ...files.map(({ target }) => target)],
+      [
+        "git",
+        "add",
+        "--",
+        ...files.map(({ target }) => target),
+        ...(pin.status === "stale" ? [CALLER_WORKFLOW] : []),
+      ],
       clone,
     );
     await runOrThrow(
       context,
-      ["git", ...COMMIT_AUTHOR, "commit", "--quiet", "-m", title, "-m", body],
+      [
+        "git",
+        ...COMMIT_AUTHOR,
+        "commit",
+        "--quiet",
+        "-m",
+        title,
+        "-m",
+        commitBody(drift),
+      ],
       clone,
     );
     // The routine owns fleet-sync/* branches and rebuilds them from the
@@ -375,6 +480,7 @@ export async function syncRepo(
       kind: "synced",
       profile,
       files,
+      pin,
       action: current === undefined ? "opened" : "updated",
       url,
       closed: superseded,
@@ -420,13 +526,22 @@ export function outcomeLines(
     ];
   }
 
-  const targets = outcome.files.map(({ target }) => target).join(", ");
+  const { profile, files, pin } = outcome;
+  const targets = files.map(({ target }) => target).join(", ");
+  const fileDrift =
+    files.length === 0
+      ? `matches the ${profile} profile`
+      : `drifts from the ${profile} profile in ${files.length} ${files.length === 1 ? "file" : "files"} (${targets})`;
+  const pinDrift =
+    pin.status === "stale"
+      ? `, and ${CALLER_WORKFLOW} pins fleet-ci.yml to ${pin.refs.join(", ")}`
+      : "";
   const action = dryRun
     ? `Would ${outcome.action === "opened" ? "open a draft pull request" : `update ${outcome.url}`}`
     : `${outcome.action === "opened" ? "Opened" : "Updated"} ${outcome.url}`;
 
   return [
-    `${repo} drifts from the ${outcome.profile} profile in ${outcome.files.length} ${outcome.files.length === 1 ? "file" : "files"} (${targets}). ${action}.`,
+    `${repo} ${fileDrift}${pinDrift}. ${action}.`,
     ...closedLines(outcome.closed),
   ];
 }
@@ -536,11 +651,13 @@ export async function main(
     return 2;
   }
 
-  const hubHead = await run(["git", "rev-parse", "HEAD"], hubRoot);
+  const hubHead = await run(HUB_COMMIT_COMMAND, hubRoot);
+  const hub =
+    hubHead.exitCode === 0 ? parseHubCommit(hubHead.stdout) : undefined;
 
-  if (hubHead.exitCode !== 0) {
+  if (hub === undefined) {
     console.error(
-      `::error::Unable to read the hub's commit with git rev-parse HEAD in ${hubRoot}: ${hubHead.stderr.trim()}`,
+      `::error::Unable to read the hub's commit with ${HUB_COMMIT_COMMAND.join(" ")} in ${hubRoot}: ${hubHead.stderr.trim() || hubHead.stdout.trim()}`,
     );
 
     return 1;
@@ -549,7 +666,7 @@ export async function main(
   const context: SyncContext = {
     run: dryRun ? dryRunner(run) : run,
     token: dryRun ? undefined : token,
-    hubSha: hubHead.stdout.trim(),
+    hub,
     workDir: await mkdtemp(join(tmpdir(), "fleet-sync-")),
     fleetDir,
   };

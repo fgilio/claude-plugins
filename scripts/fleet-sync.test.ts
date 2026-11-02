@@ -3,12 +3,21 @@ import { readdir, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 
 import {
+  CALLER_WORKFLOW,
   FLEET_DIR,
   FLEET_FILES,
+  compareFleetCiPin,
   compareWithFleet,
   driftReport,
+  fleetCiRefs,
   isProfile,
   main,
+  type PinStatus,
+  parseHubCommit,
+  pinDriftReport,
+  pinFleetCi,
+  pinStatus,
+  readHubCommit,
   shellQuote,
   syncStatus,
   syncWithFleet,
@@ -18,6 +27,26 @@ import { captureOutput, gitRepo } from "./test-support";
 const HUB = join(import.meta.dir, "..");
 
 const bytes = (text: string) => new TextEncoder().encode(text);
+
+const HUB_COMMIT = {
+  sha: "abc1234def5678abc1234def5678abc1234def56",
+  date: "2026-11-01",
+};
+
+const OLD_SHA = "5291614636ea03f3a630c8547f249b26d7e69e2e";
+
+const callCi = (ref: string, comment = " # fleet-ci 2026-10-01") =>
+  `    uses: fgilio/claude-plugins/.github/workflows/fleet-ci.yml@${ref}${comment}`;
+
+const callerWorkflow = (ref: string) =>
+  [
+    "jobs:",
+    "  checks:",
+    callCi(ref),
+    "    with:",
+    "      profile: code",
+    "",
+  ].join("\n");
 
 describe("FLEET_FILES", () => {
   test("every listed source exists under fleet/", async () => {
@@ -181,6 +210,107 @@ describe("driftReport", () => {
   });
 });
 
+describe("parseHubCommit", () => {
+  test("reads the full SHA and the date git log prints", () => {
+    expect(parseHubCommit(`${HUB_COMMIT.sha}\n2026-11-01\n`)).toEqual(
+      HUB_COMMIT,
+    );
+  });
+
+  test.each(["", "abc1234\n2026-11-01", `${HUB_COMMIT.sha}\n`])(
+    "refuses %p",
+    (stdout) => {
+      expect(parseHubCommit(stdout)).toBeUndefined();
+    },
+  );
+});
+
+describe("readHubCommit", () => {
+  test("reads the hub's HEAD", () => {
+    expect(readHubCommit(HUB)?.sha).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  test("is undefined outside a repository with commits", async () => {
+    const root = await gitRepo({});
+
+    try {
+      expect(readHubCommit(root)).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("fleetCiRefs", () => {
+  test("reads the ref of each call to the hub's fleet-ci.yml", () => {
+    expect(
+      fleetCiRefs(
+        [
+          callCi(OLD_SHA),
+          "    uses: ./.github/workflows/fleet-ci.yml",
+          '    uses: "fgilio/claude-plugins/.github/workflows/fleet-ci.yml@main"',
+          "      - uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # v1.3.0",
+          `    # uses: fgilio/claude-plugins/.github/workflows/fleet-ci.yml@${OLD_SHA}`,
+        ].join("\n"),
+      ),
+    ).toEqual([OLD_SHA, "main"]);
+  });
+});
+
+describe("pinStatus", () => {
+  test.each<[string[], PinStatus]>([
+    [[], "unpinned"],
+    [[HUB_COMMIT.sha], "same"],
+    [[HUB_COMMIT.sha, HUB_COMMIT.sha], "same"],
+    [[OLD_SHA], "stale"],
+    [[HUB_COMMIT.sha.slice(0, 7)], "stale"],
+    [[HUB_COMMIT.sha, "main"], "stale"],
+  ])("%p is %p", (refs, status) => {
+    expect(pinStatus(refs, HUB_COMMIT.sha)).toBe(status);
+  });
+});
+
+describe("pinFleetCi", () => {
+  test("pins every call to the hub commit, dated, and leaves the other lines", () => {
+    expect(pinFleetCi(callerWorkflow(OLD_SHA), HUB_COMMIT)).toBe(
+      callerWorkflow(HUB_COMMIT.sha).replace("2026-10-01", "2026-11-01"),
+    );
+  });
+
+  test("keeps the quotes and the line ending, and adds a missing comment", () => {
+    expect(
+      pinFleetCi(
+        '    uses: "fgilio/claude-plugins/.github/workflows/fleet-ci.yml@main"\r\n',
+        HUB_COMMIT,
+      ),
+    ).toBe(
+      `    uses: "fgilio/claude-plugins/.github/workflows/fleet-ci.yml@${HUB_COMMIT.sha}" # fleet-ci 2026-11-01\r\n`,
+    );
+  });
+});
+
+describe("pinDriftReport", () => {
+  test("names the stale ref, the hub commit and the command that moves it", () => {
+    const [line] = pinDriftReport(
+      { refs: [OLD_SHA, OLD_SHA], status: "stale" },
+      HUB_COMMIT.sha,
+      "../acme-books",
+      "prose",
+    );
+
+    expect(line).toStartWith(
+      `.github/workflows/ci.yml pins fleet-ci.yml to ${OLD_SHA}, but the fleet files come from fgilio/claude-plugins@${HUB_COMMIT.sha}. Run: bun `,
+    );
+    expect(line).toEndWith("fleet-sync.ts ../acme-books --profile prose");
+  });
+
+  test.each(["same", "unpinned"] as const)("is empty when %s", (status) => {
+    expect(
+      pinDriftReport({ refs: [], status }, HUB_COMMIT.sha, ".", "prose"),
+    ).toEqual([]);
+  });
+});
+
 describe("syncWithFleet", () => {
   test("writes missing and drifted files byte-identical, and leaves the rest", async () => {
     const root = await gitRepo({
@@ -241,6 +371,45 @@ describe("syncWithFleet", () => {
 });
 
 describe("main", () => {
+  test("--check reports a stale pin as drift, and the sync moves it", async () => {
+    const root = await gitRepo({ [CALLER_WORKFLOW]: callerWorkflow(OLD_SHA) });
+    const output = captureOutput();
+    const options = { hub: HUB_COMMIT };
+
+    try {
+      expect(await main([root, "--profile", "code"], options)).toBe(0);
+      expect(output.logged()).toContain(
+        `wrote     ${CALLER_WORKFLOW} (fleet-ci.yml pin)`,
+      );
+      await Bun.write(join(root, CALLER_WORKFLOW), callerWorkflow(OLD_SHA));
+
+      expect(await main([root, "--profile", "code", "--check"], options)).toBe(
+        1,
+      );
+      expect(output.errors()).toHaveLength(1);
+      expect(output.errors()[0]).toMatch(
+        new RegExp(
+          `^\\.github/workflows/ci\\.yml pins fleet-ci\\.yml to ${OLD_SHA}, but the fleet files come from fgilio/claude-plugins@${HUB_COMMIT.sha}\\. Run: bun \\S*fleet-sync\\.ts \\S+ --profile code$`,
+        ),
+      );
+
+      expect(await main([root, "--profile", "code"], options)).toBe(0);
+      expect(await compareFleetCiPin(root, HUB_COMMIT.sha)).toEqual({
+        refs: [HUB_COMMIT.sha],
+        status: "same",
+      });
+      expect(await main([root, "--profile", "code", "--check"], options)).toBe(
+        0,
+      );
+      expect(output.logged().at(-1)).toBe(
+        `${CALLER_WORKFLOW} pins fleet-ci.yml to ${HUB_COMMIT.sha}.`,
+      );
+    } finally {
+      output.restore();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("--check passes on the hub with the code profile", async () => {
     const output = captureOutput();
 
