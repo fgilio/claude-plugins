@@ -191,7 +191,7 @@ export function readHubCommit(hubRoot = HUB_ROOT): HubCommit | undefined {
  *
  * - same: every call pins the hub commit.
  * - behind: an older hub commit, and neither fleet-ci.yml nor scripts/
- *   changed since, so CI already runs the current checks.
+ *   (test files aside) changed since, so CI already runs the current checks.
  * - changed: an older hub commit, and fleet-ci.yml or scripts/ changed since.
  * - unknown: a ref that is not the full SHA of a hub commit (a short SHA,
  *   a branch, a commit the hub does not have).
@@ -208,6 +208,9 @@ export interface FleetCiPin {
 /** What fleet-ci.yml runs: the workflow and every script it may call. */
 export const FLEET_CI_PATHS = [".github/workflows/fleet-ci.yml", "scripts"];
 
+/** fleet-ci.yml never runs the hub's own tests, so they never move a pin. */
+const FLEET_CI_EXCLUDED = [":!scripts/*.test.ts"];
+
 export type WorkflowChange = "unchanged" | "changed" | "unknown";
 
 /** How fleet-ci.yml and its scripts changed between a hub commit and HEAD. */
@@ -215,7 +218,15 @@ export type WorkflowHistory = (ref: string) => Promise<WorkflowChange>;
 
 /** Exits 0 when FLEET_CI_PATHS match between ref and HEAD, 1 when not. */
 export function workflowDiffCommand(ref: string): string[] {
-  return ["git", "diff", "--quiet", `${ref}..HEAD`, "--", ...FLEET_CI_PATHS];
+  return [
+    "git",
+    "diff",
+    "--quiet",
+    `${ref}..HEAD`,
+    "--",
+    ...FLEET_CI_PATHS,
+    ...FLEET_CI_EXCLUDED,
+  ];
 }
 
 export function workflowChange(diffExitCode: number): WorkflowChange {

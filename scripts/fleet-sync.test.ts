@@ -310,49 +310,83 @@ describe("shouldMovePin", () => {
   });
 });
 
+/** A hub repository with one commit, and a helper that commits one file. */
+async function hubRepository() {
+  const root = await gitRepo({
+    "README.md": "# Hub\n",
+    "scripts/check.ts": "export {};\n",
+    "scripts/check.test.ts": "",
+    ".github/workflows/fleet-ci.yml": "name: Fleet CI\n",
+  });
+  const git = (...args: string[]) =>
+    Bun.spawnSync(
+      [
+        "git",
+        "-c",
+        "user.name=Acme",
+        "-c",
+        "user.email=acme@example.com",
+        ...args,
+      ],
+      { cwd: root },
+    )
+      .stdout.toString()
+      .trim();
+  const commit = async (path: string, text: string) => {
+    await Bun.write(join(root, path), text);
+    git("add", ".");
+    git("commit", "--quiet", "-m", `Change ${path}`);
+
+    return git("rev-parse", "HEAD");
+  };
+
+  return { root, commit, pinned: await commit("README.md", "# Hub\n") };
+}
+
 describe("hubWorkflowHistory", () => {
   test("sees a change under scripts/, ignores a docs-only commit, and reports a commit the hub lacks", async () => {
-    const hub = await gitRepo({
-      "README.md": "# Hub\n",
-      "scripts/check.ts": "export {};\n",
-      ".github/workflows/fleet-ci.yml": "name: Fleet CI\n",
-    });
-    const git = (...args: string[]) =>
-      Bun.spawnSync(
-        [
-          "git",
-          "-c",
-          "user.name=Acme",
-          "-c",
-          "user.email=acme@example.com",
-          ...args,
-        ],
-        { cwd: hub },
-      )
-        .stdout.toString()
-        .trim();
-    const commit = (path: string, text: string) => {
-      Bun.spawnSync(["sh", "-c", `printf '%s' "$1" > "$2"`, "sh", text, path], {
-        cwd: hub,
-      });
-      git("add", ".");
-      git("commit", "--quiet", "-m", `Change ${path}`);
-
-      return git("rev-parse", "HEAD");
-    };
+    const { root, commit, pinned } = await hubRepository();
+    const history = hubWorkflowHistory(root);
 
     try {
-      const pinned = commit("README.md", "# Hub\n");
-      const history = hubWorkflowHistory(hub);
-
-      commit("README.md", "# Hub, documented\n");
+      await commit("README.md", "# Hub, documented\n");
       expect(await history(pinned)).toBe("unchanged");
 
-      commit("scripts/check.ts", "export const checked = true;\n");
+      await commit("scripts/check.ts", "export const checked = true;\n");
       expect(await history(pinned)).toBe("changed");
       expect(await history("f".repeat(40))).toBe("unknown");
     } finally {
-      await rm(hub, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("leaves a pin alone when only a test file under scripts/ changed since it", async () => {
+    const { root, commit, pinned } = await hubRepository();
+    const member = await gitRepo({ [CALLER_WORKFLOW]: callerWorkflow(pinned) });
+    const output = captureOutput();
+
+    try {
+      await commit("scripts/check.test.ts", "export {};\n");
+      expect(await hubWorkflowHistory(root)(pinned)).toBe("unchanged");
+
+      const options = {
+        hub: HUB_COMMIT,
+        workflowHistory: hubWorkflowHistory(root),
+      };
+
+      expect(await main([member, "--profile", "prose"], options)).toBe(0);
+      await Bun.write(join(member, CALLER_WORKFLOW), callerWorkflow(pinned));
+      expect(
+        await main([member, "--profile", "prose", "--check"], options),
+      ).toBe(0);
+      expect(await main([member, "--profile", "prose"], options)).toBe(0);
+      expect(output.logged().at(-1)).toBe(
+        `unchanged ${CALLER_WORKFLOW} (fleet-ci.yml pin)`,
+      );
+    } finally {
+      output.restore();
+      await rm(root, { recursive: true, force: true });
+      await rm(member, { recursive: true, force: true });
     }
   });
 });

@@ -854,6 +854,7 @@ describe("main", () => {
         "--",
         ".github/workflows/fleet-ci.yml",
         "scripts",
+        ":!scripts/*.test.ts",
       ]);
       expect(output.logged().at(-1)).toBe(
         "acme/acme-books-skill matches the prose profile.",

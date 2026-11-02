@@ -98,11 +98,11 @@ jobs:
 
 The pin belongs to the sync. `fleet-sync` moves every call to the hub's `fleet-ci.yml` in `.github/workflows/ci.yml` to the hub commit it copies the files from (its `HEAD`), and leaves every other line of the file alone. It moves the pin when:
 
-- `.github/workflows/fleet-ci.yml` or anything under `scripts/` changed in the hub since the pinned commit (`git diff --quiet <pinned>..HEAD -- .github/workflows/fleet-ci.yml scripts`), so CI would run older checks.
+- the workflow or the scripts it runs, test files aside, changed in the hub since the pinned commit (`git diff --quiet <pinned>..HEAD -- .github/workflows/fleet-ci.yml scripts ':!scripts/*.test.ts'`), so CI would run older checks. `fleet-ci.yml` never runs the hub's own tests.
 - the pin is not the full SHA of a commit the hub has, such as a short SHA or a branch.
 - a config file drifted, so the pin moves with the files and never lags far behind them.
 
-A pin behind a hub commit that changed only docs stays where it is. Run `fleet-sync` from a checkout of the hub's `main` with its full history, since the pin names its `HEAD` and the check diffs against the pinned commit. The rest of `ci.yml` stays per repository, which is why it is not a synced file.
+A pin behind hub commits that changed only docs or tests stays where it is. Run `fleet-sync` from a checkout of the hub's `main` with its full history, since the pin names its `HEAD` and the check diffs against the pinned commit. The rest of `ci.yml` stays per repository, which is why it is not a synced file.
 
 To check a repository for drift, add `--check`. It exits 1 and prints each file that differs, and a pin the sync would move with the reason it found, each with the command that fixes it:
 
@@ -231,7 +231,7 @@ The template derives from the public [Publica.la pull request template](https://
 
 ## Change the standard
 
-Edit the file here, run `bun scripts/fleet-sync.ts . --profile code` so the hub's own copy matches, and open a pull request. The hub's CI runs `fleet-ci.yml` from the same commit, so the change proves itself before it merges. After it merges, the next drift pull request in each repository copies the changed files and, when the change touched the files, `fleet-ci.yml` or `scripts/`, moves its `fleet-ci.yml` pin to the new commit in the same change.
+Edit the file here, run `bun scripts/fleet-sync.ts . --profile code` so the hub's own copy matches, and open a pull request. The hub's CI runs `fleet-ci.yml` from the same commit, so the change proves itself before it merges. After it merges, the next drift pull request in each repository copies the changed files and, when the change touched the files, `fleet-ci.yml` or a script it runs, moves its `fleet-ci.yml` pin to the new commit in the same change.
 
 ## Drift
 
@@ -244,7 +244,7 @@ For each repository the marketplace lists (`bun scripts/marketplace.ts --list-re
 3. compares it with `fleet/` and the hub's commit, as `fleet-sync --check` does.
 4. when a file drifted or is missing, or the `fleet-ci.yml` pin needs to move (above), copies the canonical files, moves the pin, pushes both to the branch `fleet-sync/<hub short SHA>` and opens a draft pull request titled `Sync the fleet config files to <hub short SHA>`. Its body follows the fleet's pull request template: the hub commit, each file it changed, and the `--check` command that proves the branch matches.
 
-A hub commit that changes only docs opens no pull request. The workflow checks out the hub's full history, since the pin check diffs against each repository's pinned commit.
+A hub commit that changes only docs or tests opens no pull request. The workflow checks out the hub's full history, since the pin check diffs against each repository's pinned commit.
 
 A repository holds at most one of these pull requests. A run on the same hub commit updates the open one, a run on a newer commit closes the older one as superseded, and a repository that matches again gets its stale one closed. The routine owns the `fleet-sync/` branches and rebuilds them from the default branch on every run, so a fix goes in the hub, never on the branch. Nothing merges on its own.
 
