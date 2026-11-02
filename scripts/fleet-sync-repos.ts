@@ -633,7 +633,7 @@ export async function main(
 
   if (!dryRun && (token === undefined || token === "")) {
     console.error(
-      `::error::The ${TOKEN_SECRET} secret is missing or empty. Add a fine-grained token with contents and pull requests write access on the plugin repositories as the repository secret ${TOKEN_SECRET}.`,
+      `::error::The ${TOKEN_SECRET} secret is missing or empty. Add a fine-grained token with contents, pull requests and workflows write access on the plugin repositories as the repository secret ${TOKEN_SECRET}.`,
     );
 
     return 1;

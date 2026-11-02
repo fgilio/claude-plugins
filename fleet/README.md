@@ -246,7 +246,7 @@ The run fails when a repository cannot be cloned, pushed or given its pull reque
 
 ### The token
 
-The workflow's own token stays read-only. Writes go through a fine-grained personal access token stored as the repository secret `FLEET_SYNC_TOKEN`, scoped to the plugin repositories with **Contents** and **Pull requests** set to read and write. Without it, or with an empty value, the run fails on its first line with an error that names the secret. When the token expires, create a new one with the same scope and replace the secret.
+The workflow's own token stays read-only. Writes go through a fine-grained personal access token stored as the repository secret `FLEET_SYNC_TOKEN`, scoped to the plugin repositories with **Contents**, **Pull requests** and **Workflows** set to read and write. GitHub refuses a push that changes a file under `.github/workflows/` without **Workflows**, and moving the `fleet-ci.yml` pin changes `.github/workflows/ci.yml`. Without it, or with an empty value, the run fails on its first line with an error that names the secret. When the token expires, create a new one with the same scope and replace the secret.
 
 ### Run it by hand
 

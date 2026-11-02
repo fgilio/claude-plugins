@@ -644,7 +644,7 @@ describe("main", () => {
       try {
         expect(await main([], { run, env })).toBe(1);
         expect(output.errors()).toEqual([
-          "::error::The FLEET_SYNC_TOKEN secret is missing or empty. Add a fine-grained token with contents and pull requests write access on the plugin repositories as the repository secret FLEET_SYNC_TOKEN.",
+          "::error::The FLEET_SYNC_TOKEN secret is missing or empty. Add a fine-grained token with contents, pull requests and workflows write access on the plugin repositories as the repository secret FLEET_SYNC_TOKEN.",
         ]);
         expect(commands).toEqual([]);
       } finally {
