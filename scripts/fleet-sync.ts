@@ -187,17 +187,58 @@ export function readHubCommit(hubRoot = HUB_ROOT): HubCommit | undefined {
 }
 
 /**
- * Where the caller workflow pins fleet-ci.yml: same when every call pins
- * the hub's commit, stale when one pins anything else (another commit, a
- * short SHA, a branch), and unpinned when nothing calls it from the hub,
- * as in the hub itself, which calls its own copy.
+ * Where the caller workflow pins fleet-ci.yml, against the hub's HEAD:
+ *
+ * - same: every call pins the hub commit.
+ * - behind: an older hub commit, and neither fleet-ci.yml nor scripts/
+ *   changed since, so CI already runs the current checks.
+ * - changed: an older hub commit, and fleet-ci.yml or scripts/ changed since.
+ * - unknown: a ref that is not the full SHA of a hub commit (a short SHA,
+ *   a branch, a commit the hub does not have).
+ * - unpinned: nothing calls fleet-ci.yml from the hub, as in the hub itself.
  */
-export type PinStatus = "same" | "stale" | "unpinned";
+export type PinStatus = "same" | "behind" | "changed" | "unknown" | "unpinned";
 
 export interface FleetCiPin {
   /** Each ref the caller workflow pins fleet-ci.yml to, in file order. */
   refs: string[];
   status: PinStatus;
+}
+
+/** What fleet-ci.yml runs: the workflow and every script it may call. */
+export const FLEET_CI_PATHS = [".github/workflows/fleet-ci.yml", "scripts"];
+
+export type WorkflowChange = "unchanged" | "changed" | "unknown";
+
+/** How fleet-ci.yml and its scripts changed between a hub commit and HEAD. */
+export type WorkflowHistory = (ref: string) => Promise<WorkflowChange>;
+
+/** Exits 0 when FLEET_CI_PATHS match between ref and HEAD, 1 when not. */
+export function workflowDiffCommand(ref: string): string[] {
+  return ["git", "diff", "--quiet", `${ref}..HEAD`, "--", ...FLEET_CI_PATHS];
+}
+
+export function workflowChange(diffExitCode: number): WorkflowChange {
+  if (diffExitCode === 0) {
+    return "unchanged";
+  }
+
+  return diffExitCode === 1 ? "changed" : "unknown";
+}
+
+/**
+ * Reads the hub's history, which must reach the pinned commits: a shallow
+ * checkout reports every older pin as unknown.
+ */
+export function hubWorkflowHistory(hubRoot = HUB_ROOT): WorkflowHistory {
+  return async (ref) =>
+    workflowChange(
+      await Bun.spawn(workflowDiffCommand(ref), {
+        cwd: hubRoot,
+        stdout: "ignore",
+        stderr: "ignore",
+      }).exited,
+    );
 }
 
 const FLEET_CI_CALL =
@@ -215,12 +256,50 @@ export function fleetCiRefs(workflow: string): string[] {
   return workflow.split("\n").flatMap((line) => fleetCiCall(line)?.ref ?? []);
 }
 
-export function pinStatus(refs: string[], hubSha: string): PinStatus {
+const STATUS_BY_CHANGE: Record<WorkflowChange, PinStatus> = {
+  unchanged: "behind",
+  changed: "changed",
+  unknown: "unknown",
+};
+
+/** The most urgent status first, so one ref decides for the whole file. */
+const PIN_URGENCY: PinStatus[] = ["unknown", "changed", "behind", "same"];
+
+export async function pinStatus(
+  refs: string[],
+  hubSha: string,
+  history: WorkflowHistory,
+): Promise<PinStatus> {
   if (refs.length === 0) {
     return "unpinned";
   }
 
-  return refs.every((ref) => ref === hubSha) ? "same" : "stale";
+  const statuses = await Promise.all(
+    [...new Set(refs)].map(async (ref): Promise<PinStatus> => {
+      if (ref === hubSha) {
+        return "same";
+      }
+
+      return /^[0-9a-f]{40}$/.test(ref)
+        ? STATUS_BY_CHANGE[await history(ref)]
+        : "unknown";
+    }),
+  );
+
+  return PIN_URGENCY.find((status) => statuses.includes(status)) ?? "same";
+}
+
+/** A pin that is drift on its own, whether or not a file drifted. */
+export function isPinStale({ status }: FleetCiPin): boolean {
+  return status === "changed" || status === "unknown";
+}
+
+/**
+ * The sync moves a stale pin, and an older one along with drifted files,
+ * so a pin never lags far behind the files it checks.
+ */
+export function shouldMovePin(pin: FleetCiPin, filesDrifted: boolean): boolean {
+  return isPinStale(pin) || (pin.status === "behind" && filesDrifted);
 }
 
 /**
@@ -249,54 +328,53 @@ async function readTextOrNull(path: string): Promise<string | null> {
 export async function compareFleetCiPin(
   targetDir: string,
   hubSha: string,
+  history: WorkflowHistory,
 ): Promise<FleetCiPin> {
   const workflow = await readTextOrNull(join(targetDir, CALLER_WORKFLOW));
   const refs = workflow === null ? [] : fleetCiRefs(workflow);
 
-  return { refs, status: pinStatus(refs, hubSha) };
+  return { refs, status: await pinStatus(refs, hubSha, history) };
 }
 
-/**
- * Moves a stale pin to the hub's commit and returns the pin it found
- * before writing.
- */
-export async function syncFleetCiPin(
+export async function writeFleetCiPin(
   targetDir: string,
   hub: HubCommit,
-): Promise<FleetCiPin> {
-  const pin = await compareFleetCiPin(targetDir, hub.sha);
+): Promise<void> {
+  const path = join(targetDir, CALLER_WORKFLOW);
 
-  if (pin.status === "stale") {
-    const path = join(targetDir, CALLER_WORKFLOW);
-
-    await Bun.write(path, pinFleetCi(await Bun.file(path).text(), hub));
-  }
-
-  return pin;
+  await Bun.write(path, pinFleetCi(await Bun.file(path).text(), hub));
 }
 
-/** The refs of a stale pin that differ from the hub's commit, once each. */
-export function staleRefs(pin: FleetCiPin, hubSha: string): string[] {
+/** The refs of a pin that differ from the hub's commit, once each. */
+export function olderRefs(pin: FleetCiPin, hubSha: string): string[] {
   return [...new Set(pin.refs.filter((ref) => ref !== hubSha))];
 }
 
 /**
- * One line when the caller workflow pins fleet-ci.yml anywhere but the
- * commit the fleet files come from, naming the command that moves it.
+ * One line when the sync would move the pin, saying why: fleet-ci.yml or
+ * its scripts changed since the pinned commit, the hub has no such commit,
+ * or files drifted and the pin moves with them.
  */
 export function pinDriftReport(
   pin: FleetCiPin,
+  filesDrifted: boolean,
   hubSha: string,
   targetDir: string,
   profile: Profile,
 ): string[] {
-  if (pin.status !== "stale") {
+  if (!shouldMovePin(pin, filesDrifted)) {
     return [];
   }
 
-  return [
-    `${CALLER_WORKFLOW} pins fleet-ci.yml to ${staleRefs(pin, hubSha).join(", ")}, but the fleet files come from ${HUB_REPO}@${hubSha}. Run: ${syncCommand(targetDir, profile)}`,
-  ];
+  const pinned = `${CALLER_WORKFLOW} pins fleet-ci.yml to ${olderRefs(pin, hubSha).join(", ")}`;
+  const reason =
+    pin.status === "unknown"
+      ? `which is not the full SHA of a commit in ${HUB_REPO}`
+      : pin.status === "changed"
+        ? `and ${FLEET_CI_PATHS.join(" or ")} changed in ${HUB_REPO} since then (now ${hubSha})`
+        : `and the drifted files above come from ${HUB_REPO}@${hubSha}, so the pin moves with them`;
+
+  return [`${pinned}, ${reason}. Run: ${syncCommand(targetDir, profile)}`];
 }
 
 const USAGE =
@@ -306,11 +384,16 @@ export interface MainOptions {
   fleetDir?: string;
   /** The commit the fleet files come from. Read from the hub's HEAD by default. */
   hub?: HubCommit;
+  workflowHistory?: WorkflowHistory;
 }
 
 export async function main(
   argv: string[],
-  { fleetDir = FLEET_DIR, hub = readHubCommit() }: MainOptions = {},
+  {
+    fleetDir = FLEET_DIR,
+    hub = readHubCommit(),
+    workflowHistory = hubWorkflowHistory(),
+  }: MainOptions = {},
 ): Promise<number> {
   let parsed;
 
@@ -370,14 +453,15 @@ export async function main(
   const profile = values.profile;
 
   if (values.check) {
-    const pin = await compareFleetCiPin(targetDir, hub.sha);
+    const files = driftReport(
+      await compareWithFleet(targetDir, profile, fleetDir),
+      targetDir,
+      profile,
+    );
+    const pin = await compareFleetCiPin(targetDir, hub.sha, workflowHistory);
     const drift = [
-      ...driftReport(
-        await compareWithFleet(targetDir, profile, fleetDir),
-        targetDir,
-        profile,
-      ),
-      ...pinDriftReport(pin, hub.sha, targetDir, profile),
+      ...files,
+      ...pinDriftReport(pin, files.length > 0, hub.sha, targetDir, profile),
     ];
 
     for (const line of drift) {
@@ -392,26 +476,34 @@ export async function main(
       `${targetDir} matches the ${profile} profile (${FLEET_FILES[profile].length} files).`,
     );
 
-    if (pin.status === "same") {
-      console.log(`${CALLER_WORKFLOW} pins fleet-ci.yml to ${hub.sha}.`);
+    if (pin.status === "same" || pin.status === "behind") {
+      console.log(
+        `${CALLER_WORKFLOW} pins fleet-ci.yml to ${pin.refs.join(", ")}${pin.status === "behind" ? `, and neither ${FLEET_CI_PATHS.join(" nor ")} changed since then` : ""}.`,
+      );
     }
 
     return 0;
   }
 
-  for (const { target, status } of await syncWithFleet(
-    targetDir,
-    profile,
-    fleetDir,
-  )) {
+  const statuses = await syncWithFleet(targetDir, profile, fleetDir);
+
+  for (const { target, status } of statuses) {
     console.log(`${status === "same" ? "unchanged" : "wrote    "} ${target}`);
   }
 
-  const pin = await syncFleetCiPin(targetDir, hub);
+  const pin = await compareFleetCiPin(targetDir, hub.sha, workflowHistory);
+  const movesPin = shouldMovePin(
+    pin,
+    statuses.some(({ status }) => status !== "same"),
+  );
+
+  if (movesPin) {
+    await writeFleetCiPin(targetDir, hub);
+  }
 
   if (pin.status !== "unpinned") {
     console.log(
-      `${pin.status === "same" ? "unchanged" : "wrote    "} ${CALLER_WORKFLOW} (fleet-ci.yml pin)`,
+      `${movesPin ? "wrote    " : "unchanged"} ${CALLER_WORKFLOW} (fleet-ci.yml pin)`,
     );
   }
 

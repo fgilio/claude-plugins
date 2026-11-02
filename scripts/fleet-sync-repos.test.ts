@@ -9,6 +9,8 @@ import {
   FLEET_FILES,
   HUB_COMMIT_COMMAND,
   type Profile,
+  type WorkflowChange,
+  type WorkflowHistory,
 } from "./fleet-sync";
 import {
   type CommandRunner,
@@ -85,7 +87,10 @@ function flagValue(command: string[], flag: string): string | undefined {
  * A runner that answers git and gh the way GitHub would for these
  * repositories, and records every command it receives.
  */
-function fakeGitHub(repos: Record<string, FakeRepo>) {
+function fakeGitHub(
+  repos: Record<string, FakeRepo>,
+  { workflowDiffExitCode = 0 } = {},
+) {
   const commands: string[][] = [];
 
   const run: CommandRunner = async (command, cwd) => {
@@ -98,6 +103,10 @@ function fakeGitHub(repos: Record<string, FakeRepo>) {
         stdout: `${HUB.sha}\n${HUB.date}\n`,
         stderr: "",
       };
+    }
+
+    if (program === "git" && subcommand === "diff") {
+      return { exitCode: workflowDiffExitCode, stdout: "", stderr: "" };
     }
 
     if (program === "git" && subcommand === "clone") {
@@ -165,8 +174,27 @@ afterEach(async () => {
   await rm(workDir, { recursive: true, force: true });
 });
 
-function context(run: CommandRunner, token: string | undefined = TOKEN) {
-  return { run, token, hub: HUB, workDir, fleetDir: FLEET_DIR };
+/** A hub history where only these refs saw fleet-ci.yml or scripts/ change. */
+const historyWith =
+  (changes: Record<string, WorkflowChange>): WorkflowHistory =>
+  (ref) =>
+    Promise.resolve(changes[ref] ?? "unchanged");
+
+const SCRIPTS_CHANGED = historyWith({ [OLD_SHA]: "changed" });
+
+function context(
+  run: CommandRunner,
+  token: string | undefined = TOKEN,
+  workflowHistory: WorkflowHistory = historyWith({}),
+) {
+  return {
+    run,
+    token,
+    hub: HUB,
+    workflowHistory,
+    workDir,
+    fleetDir: FLEET_DIR,
+  };
 }
 
 describe("profileOf", () => {
@@ -222,7 +250,7 @@ describe("pullRequestBody", () => {
         hub: HUB,
         profile: "prose",
         files,
-        pin: { refs: [OLD_SHA], status: "stale" },
+        pin: { refs: [OLD_SHA], status: "changed" },
       }),
     ).toBe(
       [
@@ -232,7 +260,7 @@ describe("pullRequestBody", () => {
         "",
         "## Why",
         "",
-        "2 config files of the prose profile differ from their canonical copies in the hub. `.github/workflows/ci.yml` runs `fleet-ci.yml` from another hub commit, so CI checks this repository against a standard other than the one its files follow.",
+        "2 config files of the prose profile differ from their canonical copies in the hub. `.github/workflows/ci.yml` runs `fleet-ci.yml` from an older hub commit, and `.github/workflows/fleet-ci.yml` or `scripts` changed since, so CI checks this repository with older checks than its files follow.",
         "",
         "The monthly fleet-sync workflow in fgilio/claude-plugins opened this pull request and updates it on each run. Review it like any other change. If a file here must differ from the fleet, change the standard in the hub instead.",
         "",
@@ -281,16 +309,41 @@ describe("pullRequestBody", () => {
       hub: HUB,
       profile: "code",
       files: [],
-      pin: { refs: [OLD_SHA], status: "stale" },
+      pin: { refs: [OLD_SHA], status: "changed" },
     });
 
     expect(body).toContain(
-      "## Why\n\n`.github/workflows/ci.yml` runs `fleet-ci.yml` from another hub commit",
+      "## Why\n\n`.github/workflows/ci.yml` runs `fleet-ci.yml` from an older hub commit",
     );
     expect(body).toContain(
       `## Changes\n\n- \`.github/workflows/ci.yml\` pins \`fleet-ci.yml\` to \`${HUB_SHA}\` (was \`5291614\`)\n\n## Testing`,
     );
     expect(body).not.toContain("byte-identical");
+  });
+});
+
+describe("pullRequestBody with a pin behind", () => {
+  test("moves the pin with drifted files and says so", () => {
+    const body = pullRequestBody({
+      repo: "acme/acme-books-skill",
+      hub: HUB,
+      profile: "prose",
+      files: [
+        {
+          target: "bunfig.toml",
+          source: "shared/bunfig.toml",
+          status: "drifted",
+        },
+      ],
+      pin: { refs: [OLD_SHA], status: "behind" },
+    });
+
+    expect(body).toContain(
+      "The `fleet-ci.yml` pin in `.github/workflows/ci.yml` moves to the same commit as the files, so CI runs the checks of the commit they come from.",
+    );
+    expect(body).toContain(
+      `- \`.github/workflows/ci.yml\` pins \`fleet-ci.yml\` to \`${HUB_SHA}\` (was \`5291614\`)`,
+    );
   });
 });
 
@@ -452,7 +505,7 @@ describe("syncRepo", () => {
     );
   });
 
-  test("moves a stale fleet-ci.yml pin to the hub commit when every file matches", async () => {
+  test("leaves a repository alone when the hub changed only docs since its pin", async () => {
     const { run, commands } = fakeGitHub({
       "acme/acme-books-skill": {
         files: {
@@ -463,14 +516,60 @@ describe("syncRepo", () => {
       },
     });
 
-    expect(await syncRepo(context(run), "acme/acme-books-skill")).toMatchObject(
-      {
-        kind: "synced",
-        files: [],
-        pin: { refs: [OLD_SHA], status: "stale" },
-        action: "opened",
+    expect(await syncRepo(context(run), "acme/acme-books-skill")).toEqual({
+      kind: "in-sync",
+      profile: "prose",
+      closed: [],
+    });
+    expect(shown(commands)).toEqual(["git clone --quiet", "gh pr list"]);
+  });
+
+  test("moves the pin with drifted files when the hub changed only docs since it", async () => {
+    const { run, commands } = fakeGitHub({
+      "acme/acme-books-skill": {
+        files: {
+          "package.json": PROSE_PACKAGE,
+          ...(await syncedFiles("prose")),
+          "bunfig.toml": "[install]\n",
+          [CALLER_WORKFLOW]: callerWorkflow(OLD_SHA),
+        },
       },
+    });
+
+    expect(await syncRepo(context(run), "acme/acme-books-skill")).toMatchObject(
+      { kind: "synced", pin: { refs: [OLD_SHA], status: "behind" } },
     );
+    expect(commands[3]).toEqual([
+      "git",
+      "add",
+      "--",
+      "bunfig.toml",
+      CALLER_WORKFLOW,
+    ]);
+  });
+
+  test("moves the pin when scripts/ changed since it, even with every file matching", async () => {
+    const { run, commands } = fakeGitHub({
+      "acme/acme-books-skill": {
+        files: {
+          "package.json": PROSE_PACKAGE,
+          ...(await syncedFiles("prose")),
+          [CALLER_WORKFLOW]: callerWorkflow(OLD_SHA),
+        },
+      },
+    });
+
+    expect(
+      await syncRepo(
+        context(run, TOKEN, SCRIPTS_CHANGED),
+        "acme/acme-books-skill",
+      ),
+    ).toMatchObject({
+      kind: "synced",
+      files: [],
+      pin: { refs: [OLD_SHA], status: "changed" },
+      action: "opened",
+    });
     expect(commands[3]).toEqual(["git", "add", "--", CALLER_WORKFLOW]);
     expect(flagValue(commands[6] ?? [], "--body")).toContain(
       `- \`.github/workflows/ci.yml\` pins \`fleet-ci.yml\` to \`${HUB_SHA}\` (was \`5291614\`)`,
@@ -561,22 +660,25 @@ describe("outcomeLines", () => {
     ]);
   });
 
-  test("names a stale pin, with or without drifted files", () => {
-    const pin = { refs: [OLD_SHA], status: "stale" as const };
-
-    expect(
-      outcomeLines("acme/acme-books-skill", { ...synced, pin }, false),
-    ).toEqual([
-      `acme/acme-books-skill drifts from the prose profile in 1 file (bunfig.toml), and .github/workflows/ci.yml pins fleet-ci.yml to ${OLD_SHA}. Opened https://github.com/acme/acme-books-skill/pull/7.`,
-    ]);
-    expect(
+  test("says why the pin moves", () => {
+    const line = (
+      files: typeof synced.files,
+      status: "changed" | "unknown" | "behind",
+    ) =>
       outcomeLines(
         "acme/acme-books-skill",
-        { ...synced, files: [], pin },
+        { ...synced, files, pin: { refs: [OLD_SHA], status } },
         true,
-      ),
-    ).toEqual([
-      `acme/acme-books-skill matches the prose profile, and .github/workflows/ci.yml pins fleet-ci.yml to ${OLD_SHA}. Would open a draft pull request.`,
+      );
+
+    expect(line([], "changed")).toEqual([
+      `acme/acme-books-skill matches the prose profile, and .github/workflows/ci.yml pins fleet-ci.yml to ${OLD_SHA}, older than a change to .github/workflows/fleet-ci.yml or scripts. Would open a draft pull request.`,
+    ]);
+    expect(line([], "unknown")[0]).toContain(
+      "which is not the full SHA of a hub commit.",
+    );
+    expect(line(synced.files, "behind")).toEqual([
+      `acme/acme-books-skill drifts from the prose profile in 1 file (bunfig.toml), and .github/workflows/ci.yml pins fleet-ci.yml to ${OLD_SHA}, which moves with the files. Would open a draft pull request.`,
     ]);
   });
 
@@ -715,6 +817,63 @@ describe("main", () => {
         }),
       ).toBe(0);
       expect(clones()).toBe(3);
+    } finally {
+      output.restore();
+      await rm(hub, { recursive: true, force: true });
+    }
+  });
+
+  test("diffs fleet-ci.yml and scripts/ in the hub checkout since each pin", async () => {
+    const hub = await hubWith(["acme/acme-books-skill"]);
+    const member = {
+      files: {
+        "package.json": PROSE_PACKAGE,
+        ...(await syncedFiles("prose")),
+        [CALLER_WORKFLOW]: callerWorkflow(OLD_SHA),
+      },
+    };
+    const output = captureOutput();
+
+    try {
+      const docsOnly = fakeGitHub({ "acme/acme-books-skill": member });
+
+      expect(
+        await main([], {
+          run: docsOnly.run,
+          env: { GH_TOKEN: TOKEN },
+          hubRoot: hub,
+        }),
+      ).toBe(0);
+      expect(
+        docsOnly.commands.find(([, subcommand]) => subcommand === "diff"),
+      ).toEqual([
+        "git",
+        "diff",
+        "--quiet",
+        `${OLD_SHA}..HEAD`,
+        "--",
+        ".github/workflows/fleet-ci.yml",
+        "scripts",
+      ]);
+      expect(output.logged().at(-1)).toBe(
+        "acme/acme-books-skill matches the prose profile.",
+      );
+
+      const scriptsChanged = fakeGitHub(
+        { "acme/acme-books-skill": member },
+        { workflowDiffExitCode: 1 },
+      );
+
+      expect(
+        await main([], {
+          run: scriptsChanged.run,
+          env: { GH_TOKEN: TOKEN },
+          hubRoot: hub,
+        }),
+      ).toBe(0);
+      expect(output.logged().at(-1)).toStartWith(
+        `acme/acme-books-skill matches the prose profile, and .github/workflows/ci.yml pins fleet-ci.yml to ${OLD_SHA}, older than a change`,
+      );
     } finally {
       output.restore();
       await rm(hub, { recursive: true, force: true });

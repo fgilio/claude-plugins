@@ -15,6 +15,7 @@ import { parseArgs } from "node:util";
 
 import {
   CALLER_WORKFLOW,
+  FLEET_CI_PATHS,
   FLEET_DIR,
   type FileSyncStatus,
   type FleetCiPin,
@@ -23,13 +24,17 @@ import {
   HUB_ROOT,
   type HubCommit,
   type Profile,
+  type WorkflowHistory,
   compareFleetCiPin,
   compareWithFleet,
   parseHubCommit,
   shellQuote,
-  staleRefs,
-  syncFleetCiPin,
+  olderRefs,
+  shouldMovePin,
   syncWithFleet,
+  workflowChange,
+  workflowDiffCommand,
+  writeFleetCiPin,
 } from "./fleet-sync";
 import { pluginRepos, readMarketplace } from "./marketplace";
 
@@ -80,6 +85,8 @@ export interface SyncContext {
   /** Undefined in a dry run, which clones anonymously. */
   token: string | undefined;
   hub: HubCommit;
+  /** Reads the hub checkout, which needs the history back to each pin. */
+  workflowHistory: WorkflowHistory;
   workDir: string;
   fleetDir: string;
 }
@@ -125,6 +132,14 @@ export interface DriftPullRequest {
   pin: FleetCiPin;
 }
 
+/** The sync moves the pin when it is stale, or behind with drifted files. */
+export function movesPin({
+  files,
+  pin,
+}: Pick<DriftPullRequest, "files" | "pin">): boolean {
+  return shouldMovePin(pin, files.length > 0);
+}
+
 const short = (sha: string) => sha.slice(0, 7);
 
 /** One bullet per file the sync changes, shared by the commit and the body. */
@@ -138,9 +153,9 @@ export function changeLines({
       ({ target, source, status }) =>
         `- \`${target}\` ${status === "missing" ? "added from" : "updated to"} \`fleet/${source}\``,
     ),
-    ...(pin.status === "stale"
+    ...(movesPin({ files, pin })
       ? [
-          `- \`${CALLER_WORKFLOW}\` pins \`fleet-ci.yml\` to \`${hub.sha}\` (was ${staleRefs(
+          `- \`${CALLER_WORKFLOW}\` pins \`fleet-ci.yml\` to \`${hub.sha}\` (was ${olderRefs(
             pin,
             hub.sha,
           )
@@ -155,7 +170,14 @@ export function changeLines({
 export function pullRequestBody(drift: DriftPullRequest): string {
   const { repo, hub, profile, files, pin } = drift;
   const hubCommit = `[${HUB_REPO}@${short(hub.sha)}](https://github.com/${HUB_REPO}/commit/${hub.sha})`;
-  const isPinStale = pin.status === "stale";
+  const isPinMoved = movesPin(drift);
+  const pinReasons: Record<FleetCiPin["status"], string> = {
+    changed: `\`${CALLER_WORKFLOW}\` runs \`fleet-ci.yml\` from an older hub commit, and ${FLEET_CI_PATHS.map((path) => `\`${path}\``).join(" or ")} changed since, so CI checks this repository with older checks than its files follow.`,
+    unknown: `\`${CALLER_WORKFLOW}\` pins \`fleet-ci.yml\` to a ref that is not the full SHA of a hub commit.`,
+    behind: `The \`fleet-ci.yml\` pin in \`${CALLER_WORKFLOW}\` moves to the same commit as the files, so CI runs the checks of the commit they come from.`,
+    same: "",
+    unpinned: "",
+  };
   const reasons = [
     ...(files.length > 0
       ? [
@@ -164,11 +186,7 @@ export function pullRequestBody(drift: DriftPullRequest): string {
             : `${files.length} config files of the ${profile} profile differ from their canonical copies in the hub.`,
         ]
       : []),
-    ...(isPinStale
-      ? [
-          `\`${CALLER_WORKFLOW}\` runs \`fleet-ci.yml\` from another hub commit, so CI checks this repository against a standard other than the one its files follow.`,
-        ]
-      : []),
+    ...(isPinMoved ? [pinReasons[pin.status]] : []),
   ];
 
   return [
@@ -200,7 +218,7 @@ export function pullRequestBody(drift: DriftPullRequest): string {
     `bun scripts/fleet-sync.ts ../${repo.split("/").at(-1) ?? repo} --profile ${profile} --check`,
     "```",
     "",
-    `This repository's CI on this pull request is the proof: it runs the fleet's checks ${isPinStale ? "from the newly pinned hub commit " : ""}against the synced files.`,
+    `This repository's CI on this pull request is the proof: it runs the fleet's checks ${isPinMoved ? "from the newly pinned hub commit " : ""}against the synced files.`,
   ].join("\n");
 }
 
@@ -355,10 +373,16 @@ export async function syncRepo(
     const files = (
       await compareWithFleet(clone, profile, context.fleetDir)
     ).filter(({ status }) => status !== "same");
-    const pin = await compareFleetCiPin(clone, context.hub.sha);
+    const pin = await compareFleetCiPin(
+      clone,
+      context.hub.sha,
+      context.workflowHistory,
+    );
     const open = await openSyncPullRequests(context, repo, clone);
 
-    if (files.length === 0 && pin.status !== "stale") {
+    const drift = { repo, hub: context.hub, profile, files, pin };
+
+    if (files.length === 0 && !movesPin(drift)) {
       await closePullRequests(
         context,
         repo,
@@ -372,11 +396,14 @@ export async function syncRepo(
 
     const branch = branchName(context.hub.sha);
     const title = pullRequestTitle(context.hub.sha);
-    const drift = { repo, hub: context.hub, profile, files, pin };
     const body = pullRequestBody(drift);
 
     await syncWithFleet(clone, profile, context.fleetDir);
-    await syncFleetCiPin(clone, context.hub);
+
+    if (movesPin(drift)) {
+      await writeFleetCiPin(clone, context.hub);
+    }
+
     await runOrThrow(
       context,
       ["git", "switch", "--quiet", "--create", branch],
@@ -389,7 +416,7 @@ export async function syncRepo(
         "add",
         "--",
         ...files.map(({ target }) => target),
-        ...(pin.status === "stale" ? [CALLER_WORKFLOW] : []),
+        ...(movesPin(drift) ? [CALLER_WORKFLOW] : []),
       ],
       clone,
     );
@@ -532,10 +559,15 @@ export function outcomeLines(
     files.length === 0
       ? `matches the ${profile} profile`
       : `drifts from the ${profile} profile in ${files.length} ${files.length === 1 ? "file" : "files"} (${targets})`;
-  const pinDrift =
-    pin.status === "stale"
-      ? `, and ${CALLER_WORKFLOW} pins fleet-ci.yml to ${pin.refs.join(", ")}`
-      : "";
+  const pinned = `${CALLER_WORKFLOW} pins fleet-ci.yml to ${pin.refs.join(", ")}`;
+  const pinReasons: Record<FleetCiPin["status"], string> = {
+    changed: `, and ${pinned}, older than a change to ${FLEET_CI_PATHS.join(" or ")}`,
+    unknown: `, and ${pinned}, which is not the full SHA of a hub commit`,
+    behind: `, and ${pinned}, which moves with the files`,
+    same: "",
+    unpinned: "",
+  };
+  const pinDrift = movesPin(outcome) ? pinReasons[pin.status] : "";
   const action = dryRun
     ? `Would ${outcome.action === "opened" ? "open a draft pull request" : `update ${outcome.url}`}`
     : `${outcome.action === "opened" ? "Opened" : "Updated"} ${outcome.url}`;
@@ -667,6 +699,8 @@ export async function main(
     run: dryRun ? dryRunner(run) : run,
     token: dryRun ? undefined : token,
     hub,
+    workflowHistory: async (ref) =>
+      workflowChange((await run(workflowDiffCommand(ref), hubRoot)).exitCode),
     workDir: await mkdtemp(join(tmpdir(), "fleet-sync-")),
     fleetDir,
   };
