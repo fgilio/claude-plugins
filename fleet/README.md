@@ -59,7 +59,7 @@ The code profile adds `lint`, `lint:fix`, `typecheck`, `check:prose`, `knip` and
 
 CI runs `bun run test`, so the `test` script decides what the tests are. It is `"test": "bun test"` in most repositories. A repository whose tests run elsewhere narrows it, such as `"test": "bun test ./scripts"`, and one with no Bun tests says so with `"test": "echo 'no bun tests'"`, since `bun test` with no test file fails.
 
-Then call the shared workflow from `.github/workflows/ci.yml`, pinned to the full SHA of a commit on the hub's `main`:
+Then call the shared workflow from `.github/workflows/ci.yml`, pinned to the full SHA of a commit on the hub's `main`, with that commit's date in the comment:
 
 ```yaml
 name: CI
@@ -80,7 +80,7 @@ permissions:
 
 jobs:
   checks:
-    uses: fgilio/claude-plugins/.github/workflows/fleet-ci.yml@<commit-sha> # fleet-ci
+    uses: fgilio/claude-plugins/.github/workflows/fleet-ci.yml@<commit-sha> # fleet-ci <commit-date>
     with:
       profile: prose
   ci-success:
@@ -96,7 +96,15 @@ jobs:
 
 `ci-success` is the one required status check on `main`. Adding or renaming a gate in the shared workflow never touches a repository's ruleset.
 
-To check a repository for drift, add `--check`. It exits 1 and prints each file that differs, with the command that fixes it:
+The pin belongs to the sync. `fleet-sync` moves every call to the hub's `fleet-ci.yml` in `.github/workflows/ci.yml` to the hub commit it copies the files from (its `HEAD`), and leaves every other line of the file alone. It moves the pin when:
+
+- the workflow or the scripts it runs, test files aside, changed in the hub since the pinned commit (`git diff --quiet <pinned>..HEAD -- .github/workflows/fleet-ci.yml scripts ':!scripts/*.test.ts'`), so CI would run older checks. `fleet-ci.yml` never runs the hub's own tests.
+- the pin is not the full SHA of a commit the hub has, such as a short SHA or a branch.
+- a config file drifted, so the pin moves with the files and never lags far behind them.
+
+A pin behind hub commits that changed only docs or tests stays where it is. Run `fleet-sync` from a checkout of the hub's `main` with its full history, since the pin names its `HEAD` and the check diffs against the pinned commit. The rest of `ci.yml` stays per repository, which is why it is not a synced file.
+
+To check a repository for drift, add `--check`. It exits 1 and prints each file that differs, and a pin the sync would move with the reason it found, each with the command that fixes it:
 
 ```bash
 bun scripts/fleet-sync.ts ../acme-books-skill --profile prose --check
@@ -223,7 +231,7 @@ The template derives from the public [Publica.la pull request template](https://
 
 ## Change the standard
 
-Edit the file here, run `bun scripts/fleet-sync.ts . --profile code` so the hub's own copy matches, and open a pull request. The hub's CI runs `fleet-ci.yml` from the same commit, so the change proves itself before it merges. After it merges, each repository moves its `fleet-ci.yml` pin to the new commit and runs `fleet-sync` again.
+Edit the file here, run `bun scripts/fleet-sync.ts . --profile code` so the hub's own copy matches, and open a pull request. The hub's CI runs `fleet-ci.yml` from the same commit, so the change proves itself before it merges. After it merges, the next drift pull request in each repository copies the changed files and, when the change touched the files, `fleet-ci.yml` or a script it runs, moves its `fleet-ci.yml` pin to the new commit in the same change.
 
 ## Drift
 
@@ -233,8 +241,10 @@ For each repository the marketplace lists (`bun scripts/marketplace.ts --list-re
 
 1. clones the default branch.
 2. picks the profile from its `package.json`: `code` when `typescript` is a dev dependency, `prose` otherwise. A repository without a `package.json` has not adopted the standard yet, so it gets a notice line and is skipped.
-3. compares it with `fleet/`, as `fleet-sync --check` does.
-4. when a file drifted or is missing, copies the canonical files, pushes them to the branch `fleet-sync/<hub short SHA>` and opens a draft pull request titled `Sync the fleet config files to <hub short SHA>`, with the files it changed in the body.
+3. compares it with `fleet/` and the hub's commit, as `fleet-sync --check` does.
+4. when a file drifted or is missing, or the `fleet-ci.yml` pin needs to move (above), copies the canonical files, moves the pin, pushes both to the branch `fleet-sync/<hub short SHA>` and opens a draft pull request titled `Sync the fleet config files to <hub short SHA>`. Its body follows the fleet's pull request template: the hub commit, each file it changed, and the `--check` command that proves the branch matches.
+
+A hub commit that changes only docs or tests opens no pull request. The workflow checks out the hub's full history, since the pin check diffs against each repository's pinned commit.
 
 A repository holds at most one of these pull requests. A run on the same hub commit updates the open one, a run on a newer commit closes the older one as superseded, and a repository that matches again gets its stale one closed. The routine owns the `fleet-sync/` branches and rebuilds them from the default branch on every run, so a fix goes in the hub, never on the branch. Nothing merges on its own.
 
@@ -242,7 +252,7 @@ The run fails when a repository cannot be cloned, pushed or given its pull reque
 
 ### The token
 
-The workflow's own token stays read-only. Writes go through a fine-grained personal access token stored as the repository secret `FLEET_SYNC_TOKEN`, scoped to the plugin repositories with **Contents** and **Pull requests** set to read and write. Without it, or with an empty value, the run fails on its first line with an error that names the secret. When the token expires, create a new one with the same scope and replace the secret.
+The workflow's own token stays read-only. Writes go through a fine-grained personal access token stored as the repository secret `FLEET_SYNC_TOKEN`, scoped to the plugin repositories with **Contents**, **Pull requests** and **Workflows** set to read and write. GitHub refuses a push that changes a file under `.github/workflows/` without **Workflows**, and moving the `fleet-ci.yml` pin changes `.github/workflows/ci.yml`. Without it, or with an empty value, the run fails on its first line with an error that names the secret. When the token expires, create a new one with the same scope and replace the secret.
 
 ### Run it by hand
 

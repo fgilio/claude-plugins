@@ -3,12 +3,25 @@ import { readdir, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 
 import {
+  CALLER_WORKFLOW,
   FLEET_DIR,
   FLEET_FILES,
+  compareFleetCiPin,
   compareWithFleet,
   driftReport,
+  fleetCiRefs,
   isProfile,
+  hubWorkflowHistory,
   main,
+  type PinStatus,
+  shouldMovePin,
+  type WorkflowChange,
+  type WorkflowHistory,
+  parseHubCommit,
+  pinDriftReport,
+  pinFleetCi,
+  pinStatus,
+  readHubCommit,
   shellQuote,
   syncStatus,
   syncWithFleet,
@@ -18,6 +31,26 @@ import { captureOutput, gitRepo } from "./test-support";
 const HUB = join(import.meta.dir, "..");
 
 const bytes = (text: string) => new TextEncoder().encode(text);
+
+const HUB_COMMIT = {
+  sha: "abc1234def5678abc1234def5678abc1234def56",
+  date: "2026-11-01",
+};
+
+const OLD_SHA = "5291614636ea03f3a630c8547f249b26d7e69e2e";
+
+const callCi = (ref: string, comment = " # fleet-ci 2026-10-01") =>
+  `    uses: fgilio/claude-plugins/.github/workflows/fleet-ci.yml@${ref}${comment}`;
+
+const callerWorkflow = (ref: string) =>
+  [
+    "jobs:",
+    "  checks:",
+    callCi(ref),
+    "    with:",
+    "      profile: code",
+    "",
+  ].join("\n");
 
 describe("FLEET_FILES", () => {
   test("every listed source exists under fleet/", async () => {
@@ -181,6 +214,249 @@ describe("driftReport", () => {
   });
 });
 
+describe("parseHubCommit", () => {
+  test("reads the full SHA and the date git log prints", () => {
+    expect(parseHubCommit(`${HUB_COMMIT.sha}\n2026-11-01\n`)).toEqual(
+      HUB_COMMIT,
+    );
+  });
+
+  test.each(["", "abc1234\n2026-11-01", `${HUB_COMMIT.sha}\n`])(
+    "refuses %p",
+    (stdout) => {
+      expect(parseHubCommit(stdout)).toBeUndefined();
+    },
+  );
+});
+
+describe("readHubCommit", () => {
+  test("reads the hub's HEAD", () => {
+    expect(readHubCommit(HUB)?.sha).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  test("is undefined outside a repository with commits", async () => {
+    const root = await gitRepo({});
+
+    try {
+      expect(readHubCommit(root)).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("fleetCiRefs", () => {
+  test("reads the ref of each call to the hub's fleet-ci.yml", () => {
+    expect(
+      fleetCiRefs(
+        [
+          callCi(OLD_SHA),
+          "    uses: ./.github/workflows/fleet-ci.yml",
+          '    uses: "fgilio/claude-plugins/.github/workflows/fleet-ci.yml@main"',
+          "      - uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # v1.3.0",
+          `    # uses: fgilio/claude-plugins/.github/workflows/fleet-ci.yml@${OLD_SHA}`,
+        ].join("\n"),
+      ),
+    ).toEqual([OLD_SHA, "main"]);
+  });
+});
+
+/** A hub history where only these refs saw fleet-ci.yml or scripts/ change. */
+const historyWith =
+  (changes: Record<string, WorkflowChange>): WorkflowHistory =>
+  (ref) =>
+    Promise.resolve(changes[ref] ?? "unchanged");
+
+describe("pinStatus", () => {
+  const SHORT = OLD_SHA.slice(0, 7);
+  const UNKNOWN_SHA = "f".repeat(40);
+  const history = historyWith({ [SHORT]: "changed", [UNKNOWN_SHA]: "unknown" });
+
+  test.each<[string[], PinStatus]>([
+    [[], "unpinned"],
+    [[HUB_COMMIT.sha], "same"],
+    [[HUB_COMMIT.sha, HUB_COMMIT.sha], "same"],
+    [[OLD_SHA], "behind"],
+    [[UNKNOWN_SHA], "unknown"],
+    [[SHORT], "unknown"],
+    [["main"], "unknown"],
+    [[HUB_COMMIT.sha, OLD_SHA], "behind"],
+    [[OLD_SHA, "main"], "unknown"],
+  ])("%p is %p", async (refs, status) => {
+    expect(await pinStatus(refs, HUB_COMMIT.sha, history)).toBe(status);
+  });
+
+  test("is changed when fleet-ci.yml or scripts/ changed since the pin", async () => {
+    expect(
+      await pinStatus(
+        [OLD_SHA],
+        HUB_COMMIT.sha,
+        historyWith({ [OLD_SHA]: "changed" }),
+      ),
+    ).toBe("changed");
+  });
+});
+
+describe("shouldMovePin", () => {
+  test.each<[PinStatus, boolean, boolean]>([
+    ["changed", false, true],
+    ["unknown", false, true],
+    ["behind", false, false],
+    ["behind", true, true],
+    ["same", true, false],
+    ["unpinned", true, false],
+  ])("%s with files drifted %p is %p", (status, filesDrifted, moves) => {
+    expect(shouldMovePin({ refs: [], status }, filesDrifted)).toBe(moves);
+  });
+});
+
+/** A hub repository with one commit, and a helper that commits one file. */
+async function hubRepository() {
+  const root = await gitRepo({
+    "README.md": "# Hub\n",
+    "scripts/check.ts": "export {};\n",
+    "scripts/check.test.ts": "",
+    ".github/workflows/fleet-ci.yml": "name: Fleet CI\n",
+  });
+  const git = (...args: string[]) =>
+    Bun.spawnSync(
+      [
+        "git",
+        "-c",
+        "user.name=Acme",
+        "-c",
+        "user.email=acme@example.com",
+        ...args,
+      ],
+      { cwd: root },
+    )
+      .stdout.toString()
+      .trim();
+  const commit = async (path: string, text: string) => {
+    await Bun.write(join(root, path), text);
+    git("add", ".");
+    git("commit", "--quiet", "-m", `Change ${path}`);
+
+    return git("rev-parse", "HEAD");
+  };
+
+  return { root, commit, pinned: await commit("README.md", "# Hub\n") };
+}
+
+describe("hubWorkflowHistory", () => {
+  test("sees a change under scripts/, ignores a docs-only commit, and reports a commit the hub lacks", async () => {
+    const { root, commit, pinned } = await hubRepository();
+    const history = hubWorkflowHistory(root);
+
+    try {
+      await commit("README.md", "# Hub, documented\n");
+      expect(await history(pinned)).toBe("unchanged");
+
+      await commit("scripts/check.ts", "export const checked = true;\n");
+      expect(await history(pinned)).toBe("changed");
+      expect(await history("f".repeat(40))).toBe("unknown");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("leaves a pin alone when only a test file under scripts/ changed since it", async () => {
+    const { root, commit, pinned } = await hubRepository();
+    const member = await gitRepo({ [CALLER_WORKFLOW]: callerWorkflow(pinned) });
+    const output = captureOutput();
+
+    try {
+      await commit("scripts/check.test.ts", "export {};\n");
+      expect(await hubWorkflowHistory(root)(pinned)).toBe("unchanged");
+
+      const options = {
+        hub: HUB_COMMIT,
+        workflowHistory: hubWorkflowHistory(root),
+      };
+
+      expect(await main([member, "--profile", "prose"], options)).toBe(0);
+      await Bun.write(join(member, CALLER_WORKFLOW), callerWorkflow(pinned));
+      expect(
+        await main([member, "--profile", "prose", "--check"], options),
+      ).toBe(0);
+      expect(await main([member, "--profile", "prose"], options)).toBe(0);
+      expect(output.logged().at(-1)).toBe(
+        `unchanged ${CALLER_WORKFLOW} (fleet-ci.yml pin)`,
+      );
+    } finally {
+      output.restore();
+      await rm(root, { recursive: true, force: true });
+      await rm(member, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("pinFleetCi", () => {
+  test("pins every call to the hub commit, dated, and leaves the other lines", () => {
+    expect(pinFleetCi(callerWorkflow(OLD_SHA), HUB_COMMIT)).toBe(
+      callerWorkflow(HUB_COMMIT.sha).replace("2026-10-01", "2026-11-01"),
+    );
+  });
+
+  test("keeps the quotes and the line ending, and adds a missing comment", () => {
+    expect(
+      pinFleetCi(
+        '    uses: "fgilio/claude-plugins/.github/workflows/fleet-ci.yml@main"\r\n',
+        HUB_COMMIT,
+      ),
+    ).toBe(
+      `    uses: "fgilio/claude-plugins/.github/workflows/fleet-ci.yml@${HUB_COMMIT.sha}" # fleet-ci 2026-11-01\r\n`,
+    );
+  });
+});
+
+describe("pinDriftReport", () => {
+  const report = (status: PinStatus, filesDrifted: boolean) =>
+    pinDriftReport(
+      { refs: [OLD_SHA, OLD_SHA], status },
+      filesDrifted,
+      HUB_COMMIT.sha,
+      "../acme-books",
+      "prose",
+    );
+
+  test.each<[PinStatus, boolean, string]>([
+    [
+      "changed",
+      false,
+      `and .github/workflows/fleet-ci.yml or scripts changed in fgilio/claude-plugins since then (now ${HUB_COMMIT.sha}).`,
+    ],
+    [
+      "unknown",
+      false,
+      "which is not the full SHA of a commit in fgilio/claude-plugins.",
+    ],
+    [
+      "behind",
+      true,
+      `and the drifted files above come from fgilio/claude-plugins@${HUB_COMMIT.sha}, so the pin moves with them.`,
+    ],
+  ])(
+    "says why a %s pin moves (files drifted: %p)",
+    (status, filesDrifted, reason) => {
+      const [line] = report(status, filesDrifted);
+
+      expect(line).toStartWith(
+        `.github/workflows/ci.yml pins fleet-ci.yml to ${OLD_SHA}, ${reason} Run: bun `,
+      );
+      expect(line).toEndWith("fleet-sync.ts ../acme-books --profile prose");
+    },
+  );
+
+  test.each<[PinStatus, boolean]>([
+    ["behind", false],
+    ["same", true],
+    ["unpinned", true],
+  ])("is empty when %s (files drifted: %p)", (status, filesDrifted) => {
+    expect(report(status, filesDrifted)).toEqual([]);
+  });
+});
+
 describe("syncWithFleet", () => {
   test("writes missing and drifted files byte-identical, and leaves the rest", async () => {
     const root = await gitRepo({
@@ -241,6 +517,87 @@ describe("syncWithFleet", () => {
 });
 
 describe("main", () => {
+  test("--check reports a pin older than a change to the workflow, and the sync moves it", async () => {
+    const root = await gitRepo({ [CALLER_WORKFLOW]: callerWorkflow(OLD_SHA) });
+    const output = captureOutput();
+    const options = {
+      hub: HUB_COMMIT,
+      workflowHistory: historyWith({ [OLD_SHA]: "changed" }),
+    };
+
+    try {
+      expect(await main([root, "--profile", "code"], options)).toBe(0);
+      expect(output.logged()).toContain(
+        `wrote     ${CALLER_WORKFLOW} (fleet-ci.yml pin)`,
+      );
+      await Bun.write(join(root, CALLER_WORKFLOW), callerWorkflow(OLD_SHA));
+
+      expect(await main([root, "--profile", "code", "--check"], options)).toBe(
+        1,
+      );
+      expect(output.errors()).toHaveLength(1);
+      expect(output.errors()[0]).toMatch(
+        new RegExp(
+          `^\\.github/workflows/ci\\.yml pins fleet-ci\\.yml to ${OLD_SHA}, and \\S+ or scripts changed in fgilio/claude-plugins since then \\(now ${HUB_COMMIT.sha}\\)\\. Run: bun \\S*fleet-sync\\.ts \\S+ --profile code$`,
+        ),
+      );
+
+      expect(await main([root, "--profile", "code"], options)).toBe(0);
+      expect(
+        await compareFleetCiPin(root, HUB_COMMIT.sha, options.workflowHistory),
+      ).toEqual({
+        refs: [HUB_COMMIT.sha],
+        status: "same",
+      });
+      expect(await main([root, "--profile", "code", "--check"], options)).toBe(
+        0,
+      );
+      expect(output.logged().at(-1)).toBe(
+        `${CALLER_WORKFLOW} pins fleet-ci.yml to ${HUB_COMMIT.sha}.`,
+      );
+    } finally {
+      output.restore();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("leaves a pin behind a docs-only hub commit, and moves it with drifted files", async () => {
+    const root = await gitRepo({ [CALLER_WORKFLOW]: callerWorkflow(OLD_SHA) });
+    const output = captureOutput();
+    const options = { hub: HUB_COMMIT, workflowHistory: historyWith({}) };
+
+    try {
+      expect(await main([root, "--profile", "prose"], options)).toBe(0);
+      expect(
+        fleetCiRefs(await Bun.file(join(root, CALLER_WORKFLOW)).text()),
+      ).toEqual([HUB_COMMIT.sha]);
+
+      await Bun.write(join(root, CALLER_WORKFLOW), callerWorkflow(OLD_SHA));
+      expect(await main([root, "--profile", "prose", "--check"], options)).toBe(
+        0,
+      );
+      expect(output.logged().at(-1)).toBe(
+        `${CALLER_WORKFLOW} pins fleet-ci.yml to ${OLD_SHA}, and neither .github/workflows/fleet-ci.yml nor scripts changed since then.`,
+      );
+
+      expect(await main([root, "--profile", "prose"], options)).toBe(0);
+      expect(output.logged().at(-1)).toBe(
+        `unchanged ${CALLER_WORKFLOW} (fleet-ci.yml pin)`,
+      );
+
+      await Bun.write(join(root, "bunfig.toml"), "[install]\n");
+      expect(await main([root, "--profile", "prose", "--check"], options)).toBe(
+        1,
+      );
+      expect(output.errors().at(-1)).toContain(
+        "and the drifted files above come from",
+      );
+    } finally {
+      output.restore();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("--check passes on the hub with the code profile", async () => {
     const output = captureOutput();
 
