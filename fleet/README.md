@@ -146,6 +146,10 @@ Test fixtures are linted too. When a fixture must break a rule, add an `override
 
 Files under a hidden directory (`.wrangler/`, `.claude/` and the like, where tools write generated JavaScript on a developer's machine) are left out of type checks and lint, through `exclude` in `tsconfig.json` and `ignorePatterns` in `.oxlintrc.json`. Keep code the repository owns out of hidden directories.
 
+### Tests
+
+The test job runs `bun run test` on Linux and on macOS, the two systems plugins run on. A test that passes on one and fails on the other fails the job.
+
 ### Markdown: markdownlint
 
 Every rule is on except line length (`MD013`), since the formatter keeps paragraphs on one line. The PR template turns off only the first-line heading rule (`MD041`), since it is the body of a pull request description and opens with a `Closes:` line instead of a heading.
