@@ -99,9 +99,16 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
 
+  # Plugins run on Linux (cloud sessions) and macOS, which differ in path
+  # links such as /var -> /private/var, so the tests run on both.
   test:
     if: ${{ inputs.profile == 'code' }}
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     permissions:
       contents: read
