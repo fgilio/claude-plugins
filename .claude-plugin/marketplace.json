@@ -54,6 +54,14 @@
       "description": "Draws each tool call as one compact line; click a line to see its full input and result in a side pane"
     },
     {
+      "name": "repo-links",
+      "source": {
+        "source": "github",
+        "repo": "fgilio/repo-links-mod"
+      },
+      "description": "Turns repo#123 and owner/repo#123 in Claude's replies into links to the GitHub pull request or issue"
+    },
+    {
       "name": "codex-partner",
       "source": {
         "source": "github",
