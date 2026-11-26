@@ -62,14 +62,6 @@
       "description": "Turns repo#123 and owner/repo#123 in Claude's replies into links to the GitHub pull request or issue"
     },
     {
-      "name": "codex-partner",
-      "source": {
-        "source": "github",
-        "repo": "fgilio/codex-partner-skill"
-      },
-      "description": "Talk with OpenAI Codex from Claude Code and put it to work: a one-shot question, a code review, or a named partner that remembers the conversation and takes on an investigation or an implementation. Works in local and cloud sessions."
-    },
-    {
       "name": "ship-it",
       "source": {
         "source": "github",
