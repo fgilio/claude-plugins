@@ -33,13 +33,13 @@ s=~/.claude/settings.json
 jq '.extraKnownMarketplaces.fgilio.autoUpdate = true' "$s" > "$s.tmp" && mv "$s.tmp" "$s"
 ```
 
-[cloud-setup.sh](cloud-setup.sh) installs `coding`, `polish`, `fgilio-review`, `codex-partner`, `ship-it`, the Codex CLI and the Cloudflare CLI (`cf`). It writes a Codex config and a user `CLAUDE.md` when the environment has none, and sets `NODE_USE_ENV_PROXY=1`, because Node's `fetch` skips the agent proxy and its network secrets otherwise. Every step is best effort, so a failed install never blocks the session, and the last line counts the failures.
+[cloud-setup.sh](cloud-setup.sh) installs `coding`, `polish`, `fgilio-review` and `ship-it`, and nothing else: the CLIs, the user settings and `CLAUDE.md` stay with the environment's own setup script. Every install is best effort and time-boxed, so a failed one never blocks the session, and the last line counts the failures.
 
 Claude Code caches the environment for about seven days and reruns the setup script only when its text changes. Auto-update brings each plugin's latest version to every session, but a change to `cloud-setup.sh` itself (a plugin or a CLI it adds) waits for the next rebuild. To pick it up sooner, change the setup script, for example by bumping a `# rev` comment.
 
 ### Cloudflare
 
-To give an environment read-only access to every Cloudflare account and zone, create a user API token from the **Read all resources** template. Add a network secret for `api.cloudflare.com` that holds the token, and set the environment variable `CLOUDFLARE_API_TOKEN=network-secret`. The agent proxy replaces the placeholder `Authorization` header with the secret, so curl, Bun and `cf` work unchanged and the key never enters the VM.
+To give an environment read-only access to every Cloudflare account and zone, create a user API token from the **Read all resources** template. Add a network secret for `api.cloudflare.com` that holds the token, and set the environment variable `CLOUDFLARE_API_TOKEN=network-secret`. The agent proxy replaces the placeholder `Authorization` header with the secret, so curl and Bun work unchanged and the key never enters the VM. Node's `fetch` reaches the proxy only with `NODE_USE_ENV_PROXY=1`, so set it on the command that runs a Node CLI such as `cf`, never for the whole session: Node then prints a warning on stderr that some tools write into the files they format.
 
 ## Updates
 
